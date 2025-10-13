@@ -9,7 +9,7 @@ const {
   searchJobs,
   getJobApplications
 } = require('../controllers/jobController');
-const { auth } = require('../middleware/auth');
+const { auth, requireEmployer } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -17,12 +17,12 @@ const router = express.Router();
 const createJobValidation = [
   body('title')
     .trim()
-    .isLength({ min: 5, max: 255 })
-    .withMessage('Title must be between 5 and 255 characters'),
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Title is required (max 255 characters)'),
   body('company')
     .trim()
-    .isLength({ min: 2, max: 255 })
-    .withMessage('Company name must be between 2 and 255 characters'),
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Company name is required (max 255 characters)'),
   body('location')
     .trim()
     .notEmpty()
@@ -32,12 +32,12 @@ const createJobValidation = [
     .withMessage('Invalid job type'),
   body('description')
     .trim()
-    .isLength({ min: 50, max: 5000 })
-    .withMessage('Description must be between 50 and 5000 characters'),
+    .isLength({ min: 1, max: 5000 })
+    .withMessage('Description is required'),
   body('requirements')
     .trim()
-    .isLength({ min: 20, max: 3000 })
-    .withMessage('Requirements must be between 20 and 3000 characters'),
+    .isLength({ min: 1, max: 3000 })
+    .withMessage('Requirements is required'),
   body('category')
     .trim()
     .notEmpty()
@@ -125,9 +125,9 @@ router.get('/search', searchJobs);
 router.get('/:id', getJobById);
 
 // Protected routes (require authentication)
-router.post('/', auth, createJobValidation, createJob);
-router.put('/:id', auth, updateJobValidation, updateJob);
-router.delete('/:id', auth, deleteJob);
+router.post('/', auth, requireEmployer, createJobValidation, createJob);
+router.put('/:id', auth, requireEmployer, updateJobValidation, updateJob);
+router.delete('/:id', auth, requireEmployer, deleteJob);
 router.get('/:id/applications', auth, getJobApplications);
 
 module.exports = router;

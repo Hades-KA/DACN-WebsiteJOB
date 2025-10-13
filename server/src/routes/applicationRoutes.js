@@ -1,5 +1,5 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 const { Application, Job, User, CV } = require('../models');
 const { auth } = require('../middleware/auth');
 
@@ -13,6 +13,10 @@ const createApplicationValidation = [
   body('jobId')
     .isUUID()
     .withMessage('Valid job ID is required'),
+  body('cvId')
+    .optional()
+    .isUUID()
+    .withMessage('cvId must be a valid UUID'),
   body('coverLetter')
     .optional()
     .trim()
@@ -167,7 +171,7 @@ const createApplication = async (req, res) => {
       });
     }
 
-    const { jobId, coverLetter, expectedSalary, availableFrom } = req.body;
+    const { jobId, cvId, coverLetter, expectedSalary, availableFrom } = req.body;
     const candidateId = req.user.userId;
 
     // Check if job exists and is active
@@ -192,10 +196,20 @@ const createApplication = async (req, res) => {
       });
     }
 
+    // Validate CV ownership if provided
+    let cvRecord = null;
+    if (cvId) {
+      cvRecord = await CV.findOne({ where: { id: cvId, candidateId } });
+      if (!cvRecord) {
+        return res.status(400).json({ message: 'Invalid cvId or you do not own this CV' });
+      }
+    }
+
     // Create application
     const application = await Application.create({
       jobId,
       candidateId,
+      cvId: cvId || null,
       coverLetter,
       expectedSalary: expectedSalary ? parseFloat(expectedSalary) : null,
       availableFrom: availableFrom ? new Date(availableFrom) : null,

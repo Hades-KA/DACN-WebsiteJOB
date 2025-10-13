@@ -1,46 +1,91 @@
-// const { Job, User, Application } = require('../models');
+const { Job, User, Application } = require('../models');
 const { validationResult } = require('express-validator');
-// const { Op } = require('sequelize');
+const { Op } = require('sequelize');
 
 // Get all jobs with pagination and filters
 const getAllJobs = async (req, res) => {
   try {
-    // Mock data for testing
-    const mockJobs = [
-      {
-        id: '1',
-        title: 'Frontend Developer',
-        company: 'Tech Corp',
-        location: 'Ho Chi Minh City',
-        type: 'full-time',
-        salary: '15-20M VND',
-        description: 'We are looking for a skilled Frontend Developer...',
-        requirements: 'React, JavaScript, HTML, CSS',
-        category: 'IT',
-        createdAt: new Date()
-      },
-      {
-        id: '2', 
-        title: 'Backend Developer',
-        company: 'StartupXYZ',
-        location: 'Ha Noi',
-        type: 'full-time',
-        salary: '18-25M VND',
-        description: 'Join our backend team...',
-        requirements: 'Node.js, Python, SQL',
-        category: 'IT',
-        createdAt: new Date()
+    const {
+      title,
+      location,
+      category,
+      type,
+      experience,
+      skills,
+      sort = 'createdAt:desc',
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    const whereClause = { isActive: true };
+
+    if (title) {
+      whereClause.title = { [Op.like]: `%${title}%` };
+    }
+
+    if (location) {
+      whereClause.location = { [Op.like]: `%${location}%` };
+    }
+
+    if (category) {
+      whereClause.category = { [Op.like]: `%${category}%` };
+    }
+
+    if (type) {
+      whereClause.type = type;
+    }
+
+    if (experience) {
+      whereClause.experience = { [Op.like]: `%${experience}%` };
+    }
+
+    if (skills) {
+      const list = Array.isArray(skills)
+        ? skills
+        : String(skills)
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+      if (list.length) {
+        whereClause[Op.and] = [
+          ...(whereClause[Op.and] || []),
+          ...list.map(s => ({ skills: { [Op.like]: `%${s}%` } }))
+        ];
       }
-    ];
+    }
+
+    let order = [['createdAt', 'DESC']];
+    if (sort) {
+      const [field, dir] = String(sort).split(':');
+      const direction = (dir || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      if (['createdAt'].includes(field)) {
+        order = [[field, direction]];
+      }
+    }
+
+    const { count, rows: jobs } = await Job.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          as: 'employer',
+          attributes: ['id', 'name', 'company']
+        }
+      ],
+      order,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
 
     res.json({
       message: 'Jobs retrieved successfully',
-      data: mockJobs,
+      data: jobs,
       pagination: {
-        currentPage: 1,
-        totalPages: 1,
-        totalItems: mockJobs.length,
-        itemsPerPage: 10
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / limit),
+        totalItems: count,
+        itemsPerPage: parseInt(limit)
       }
     });
   } catch (error) {
@@ -101,10 +146,30 @@ const createJob = async (req, res) => {
       });
     }
 
+    // Normalize optional fields to avoid MSSQL type conversion errors
+    const body = { ...req.body };
+    // Convert empty strings to null
+    ['salary', 'experience', 'benefits', 'description', 'requirements', 'category'].forEach(k => {
+      if (body[k] === '') delete body[k];
+    });
+    // Deadline: temporarily force to null to bypass date conversion issues during testing
+    body.deadline = null;
+    // Skills: accept array or JSON string
+    if (typeof body.skills === 'string' && body.skills.trim() !== '') {
+      try {
+        const parsed = JSON.parse(body.skills);
+        body.skills = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        body.skills = body.skills.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+
     const jobData = {
-      ...req.body,
+      ...body,
       employerId: req.user.userId
     };
+
+    console.log('CreateJob payload:', jobData);
 
     const job = await Job.create(jobData);
 
@@ -196,6 +261,8 @@ const searchJobs = async (req, res) => {
       type,
       experience,
       salary,
+      skills,
+      sort = 'createdAt:desc',
       page = 1,
       limit = 10
     } = req.query;
@@ -204,15 +271,15 @@ const searchJobs = async (req, res) => {
     const whereClause = { isActive: true };
 
     if (title) {
-      whereClause.title = { [Op.iLike]: `%${title}%` };
+      whereClause.title = { [Op.like]: `%${title}%` };
     }
 
     if (location) {
-      whereClause.location = { [Op.iLike]: `%${location}%` };
+      whereClause.location = { [Op.like]: `%${location}%` };
     }
 
     if (category) {
-      whereClause.category = { [Op.iLike]: `%${category}%` };
+      whereClause.category = { [Op.like]: `%${category}%` };
     }
 
     if (type) {
@@ -220,7 +287,7 @@ const searchJobs = async (req, res) => {
     }
 
     if (experience) {
-      whereClause.experience = { [Op.iLike]: `%${experience}%` };
+      whereClause.experience = { [Op.like]: `%${experience}%` };
     }
 
     const { count, rows: jobs } = await Job.findAndCountAll({

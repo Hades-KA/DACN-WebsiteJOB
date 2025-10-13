@@ -12,7 +12,7 @@ const Job = sequelize.define('Job', {
     allowNull: false,
     validate: {
       notEmpty: true,
-      len: [5, 255]
+      len: [1, 255]
     }
   },
   company: {
@@ -20,7 +20,7 @@ const Job = sequelize.define('Job', {
     allowNull: false,
     validate: {
       notEmpty: true,
-      len: [2, 255]
+      len: [1, 255]
     }
   },
   location: {
@@ -48,7 +48,7 @@ const Job = sequelize.define('Job', {
     allowNull: false,
     validate: {
       notEmpty: true,
-      len: [50, 5000]
+      len: [1, 5000]
     }
   },
   requirements: {
@@ -56,7 +56,7 @@ const Job = sequelize.define('Job', {
     allowNull: false,
     validate: {
       notEmpty: true,
-      len: [20, 3000]
+      len: [1, 3000]
     }
   },
   benefits: {
@@ -105,7 +105,7 @@ const Job = sequelize.define('Job', {
   }
 }, {
   tableName: 'jobs',
-  timestamps: true,
+  timestamps: false,
   indexes: [
     {
       fields: ['category']

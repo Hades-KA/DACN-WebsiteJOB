@@ -1,18 +1,30 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
+import JobDetail from './pages/JobDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import CVList from './pages/CVList';
+import SavedJobs from './pages/SavedJobs';
+import MyApplications from './pages/MyApplications';
 import JobPost from './pages/JobPost';
 import Dashboard from './pages/Dashboard';
 import Header from './components/Header';
 import Footer from './components/Footer';
 
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
+// Protected Route Component with role-based access
+const ProtectedRoute = ({ children, roles }) => {
   const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/login" />;
+  if (!token) return <Navigate to="/login" />;
+  if (roles && roles.length) {
+    const userRaw = localStorage.getItem('user');
+    const user = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
+    const userType = user?.userType;
+    if (!userType || !roles.includes(userType)) {
+      return <Navigate to="/" />;
+    }
+  }
+  return children;
 };
 
 // Public Route Component (redirect if logged in)
@@ -51,10 +63,11 @@ function AppRoutes() {
             />
             
             {/* Protected Routes */}
+            <Route path="/job/:id" element={<JobDetail />} />
             <Route 
               path="/dashboard" 
               element={
-                <ProtectedRoute>
+                <ProtectedRoute roles={["employer"]}>
                   <Dashboard />
                 </ProtectedRoute>
               } 
@@ -62,16 +75,32 @@ function AppRoutes() {
             <Route 
               path="/cv-list" 
               element={
-                <ProtectedRoute>
+                <ProtectedRoute roles={["candidate","admin"]}>
                   <CVList />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/saved-jobs" 
+              element={
+                <ProtectedRoute roles={["candidate","admin"]}>
+                  <SavedJobs />
                 </ProtectedRoute>
               } 
             />
             <Route 
               path="/post-job" 
               element={
-                <ProtectedRoute>
+                <ProtectedRoute roles={["employer","admin"]}>
                   <JobPost />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/my-applications" 
+              element={
+                <ProtectedRoute roles={["candidate","admin"]}>
+                  <MyApplications />
                 </ProtectedRoute>
               } 
             />

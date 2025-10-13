@@ -68,10 +68,20 @@ const Application = sequelize.define('Application', {
       model: 'cvs',
       key: 'id'
     }
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: sequelize.literal('GETDATE()')
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: sequelize.literal('GETDATE()')
   }
 }, {
   tableName: 'applications',
-  timestamps: true,
+  timestamps: false,
   indexes: [
     {
       fields: ['status']

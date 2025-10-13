@@ -62,6 +62,14 @@ app.get('/test-db', async (req, res) => {
 app.use('/api/auth', require('./src/routes/authRoutes'));
 app.use('/api/jobs', require('./src/routes/jobRoutes'));
 app.use('/api/dashboard', require('./src/routes/dashboardRoutes'));
+app.use('/api/companies', require('./src/routes/companyRoutes'));
+app.use('/api/applications', require('./src/routes/applicationRoutes'));
+app.use('/api/cvs', require('./src/routes/cvRoutes'));
+app.use('/api/notifications', require('./src/routes/notificationRoutes'));
+app.use('/api/files', require('./src/routes/fileRoutes'));
+app.use('/api/ai', require('./src/routes/aiRoutes'));
+app.use('/api/users', require('./src/routes/userRoutes'));
+app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 
 // Middleware xử lý lỗi
 app.use((err, req, res, next) => {

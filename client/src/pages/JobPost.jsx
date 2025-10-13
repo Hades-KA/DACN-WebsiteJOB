@@ -20,12 +20,21 @@ const JobPost = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [customTitle, setCustomTitle] = useState('');
 
   const jobTypes = [
     { value: 'full-time', label: 'Toàn thời gian' },
     { value: 'part-time', label: 'Bán thời gian' },
     { value: 'contract', label: 'Hợp đồng' },
     { value: 'intern', label: 'Thực tập' }
+  ];
+
+  const itRoles = [
+    'Frontend Developer','Backend Developer','Fullstack Developer','Mobile Developer',
+    'DevOps Engineer','QA/QC Engineer','Automation Tester','Data Engineer','Data Scientist',
+    'AI/ML Engineer','UI/UX Designer','Product Manager','Project Manager','Business Analyst',
+    'Scrum Master','System Administrator','Cloud Engineer','Security Engineer','Embedded Engineer',
+    'Game Developer','Solution Architect','Technical Lead','Intern Developer'
   ];
 
   const categories = [
@@ -38,6 +47,10 @@ const JobPost = () => {
     'Dịch vụ khách hàng',
     'Sản xuất',
     'Khác'
+  ];
+
+  const provinces = [
+    'Hà Nội','Hồ Chí Minh','Đà Nẵng','Hải Phòng','Cần Thơ','An Giang','Bà Rịa - Vũng Tàu','Bắc Giang','Bắc Kạn','Bạc Liêu','Bắc Ninh','Bến Tre','Bình Dương','Bình Định','Bình Phước','Bình Thuận','Cà Mau','Cao Bằng','Đắk Lắk','Đắk Nông','Điện Biên','Đồng Nai','Đồng Tháp','Gia Lai','Hà Giang','Hà Nam','Hà Tĩnh','Hải Dương','Hậu Giang','Hòa Bình','Hưng Yên','Khánh Hòa','Kiên Giang','Kon Tum','Lai Châu','Lâm Đồng','Lạng Sơn','Lào Cai','Long An','Nam Định','Nghệ An','Ninh Bình','Ninh Thuận','Phú Thọ','Phú Yên','Quảng Bình','Quảng Nam','Quảng Ngãi','Quảng Ninh','Quảng Trị','Sóc Trăng','Sơn La','Tây Ninh','Thái Bình','Thái Nguyên','Thanh Hóa','Thừa Thiên Huế','Tiền Giang','Trà Vinh','Tuyên Quang','Vĩnh Long','Vĩnh Phúc','Yên Bái'
   ];
 
   const handleChange = (e) => {
@@ -53,7 +66,15 @@ const JobPost = () => {
     setError('');
 
     try {
-      await jobService.createJob(formData);
+      const payload = { ...formData };
+      if (!payload.deadline) {
+        delete payload.deadline;
+      } else {
+        const d = new Date(payload.deadline);
+        if (isNaN(d.getTime())) delete payload.deadline; else payload.deadline = d.toISOString();
+      }
+      console.log('Create job payload (client):', payload);
+      await jobService.createJob(payload);
       navigate('/dashboard');
     } catch (error) {
       setError(error.response?.data?.message || 'Đăng tin thất bại');
@@ -94,16 +115,39 @@ const JobPost = () => {
                   <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
                     Tên vị trí tuyển dụng *
                   </label>
-                  <input
-                    type="text"
-                    id="title"
-                    name="title"
+                  <select
+                    id="titleSelect"
+                    name="titleSelect"
                     required
-                    value={formData.title}
-                    onChange={handleChange}
+                    value={itRoles.includes(formData.title) ? formData.title : '__custom__'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__custom__') {
+                        setCustomTitle(formData.title || '');
+                        setFormData({ ...formData, title: '' });
+                      } else {
+                        setFormData({ ...formData, title: val });
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ví dụ: Frontend Developer"
-                  />
+                  >
+                    <option value="__custom__">Chọn chức danh (hoặc tự nhập)</option>
+                    {itRoles.map(role => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                  {!itRoles.includes(formData.title) && (
+                    <input
+                      type="text"
+                      id="title"
+                      name="title"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Nhập chức danh (VD: Frontend Developer)"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -129,16 +173,19 @@ const JobPost = () => {
                     <MapPin className="w-4 h-4 inline mr-1" />
                     Địa điểm *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     id="location"
                     name="location"
                     required
                     value={formData.location}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ví dụ: Hà Nội"
-                  />
+                  >
+                    <option value="">Chọn tỉnh/thành</option>
+                    {provinces.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

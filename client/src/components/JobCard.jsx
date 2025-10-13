@@ -1,12 +1,60 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { MapPin, Clock, DollarSign, Building, Star } from 'lucide-react';
+import api from '../services/api';
+
+// Simple in-memory cache for saved job IDs to avoid many network calls and keep state across cards
+let savedIdsCache = null; // Set<string> | null
+let savedIdsLoading = null; // Promise<Set<string>> | null
+
+const loadSavedIds = async () => {
+  if (savedIdsCache) return savedIdsCache;
+  if (savedIdsLoading) return savedIdsLoading;
+  const token = localStorage.getItem('token');
+  if (!token) {
+    savedIdsCache = new Set();
+    return savedIdsCache;
+  }
+  savedIdsLoading = api.get('/saved-jobs')
+    .then(res => {
+      const ids = new Set((res.data?.data || []).map(j => j.id));
+      savedIdsCache = ids;
+      return ids;
+    })
+    .catch(() => {
+      savedIdsCache = new Set();
+      return savedIdsCache;
+    })
+    .finally(() => {
+      savedIdsLoading = null;
+    });
+  return savedIdsLoading;
+};
 
 const JobCard = ({ job }) => {
+  const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const userRaw = localStorage.getItem('user');
+  const user = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
+  const userType = user?.userType;
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('vi-VN');
+    if (!dateString) return '';
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('vi-VN');
   };
+
+  // On mount, preload saved state so it persists across reloads
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!localStorage.getItem('token')) return;
+      const ids = await loadSavedIds();
+      if (mounted) setIsSaved(ids.has(job.id));
+    })();
+    return () => { mounted = false; };
+  }, [job.id]);
 
   const getJobTypeColor = (type) => {
     const colors = {
@@ -71,19 +119,43 @@ const JobCard = ({ job }) => {
       )}
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {job.skills && job.skills.slice(0, 3).map((skill, index) => (
+        {(() => {
+          let skills = [];
+          if (Array.isArray(job.skills)) skills = job.skills;
+          else if (typeof job.skills === 'string') {
+            try {
+              const parsed = JSON.parse(job.skills);
+              if (Array.isArray(parsed)) skills = parsed;
+              else skills = job.skills.split(',').map(s => s.trim()).filter(Boolean);
+            } catch (_) {
+              skills = job.skills.split(',').map(s => s.trim()).filter(Boolean);
+            }
+          }
+          const top = skills.slice(0, 3);
+          return top.map((skill, index) => (
           <span
             key={index}
             className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
           >
             {skill}
           </span>
-        ))}
-        {job.skills && job.skills.length > 3 && (
+          ));
+        })()}
+        {(() => {
+          let len = 0;
+          if (Array.isArray(job.skills)) len = job.skills.length;
+          else if (typeof job.skills === 'string') {
+            try {
+              const parsed = JSON.parse(job.skills);
+              len = Array.isArray(parsed) ? parsed.length : 0;
+            } catch (_) { len = job.skills ? job.skills.split(',').filter(Boolean).length : 0; }
+          }
+          return len > 3 ? (
           <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-            +{job.skills.length - 3} khác
+            +{len - 3} khác
           </span>
-        )}
+          ) : null;
+        })()}
       </div>
 
       <div className="flex items-center justify-between">
@@ -97,9 +169,7 @@ const JobCard = ({ job }) => {
             </span>
           )}
         </div>
-        <span className="text-xs text-gray-500">
-          {formatDate(job.createdAt)}
-        </span>
+        <span className="text-xs text-gray-500">{formatDate(job.createdAt)}</span>
       </div>
 
       <div className="mt-4 pt-4 border-t border-gray-100">
@@ -108,8 +178,31 @@ const JobCard = ({ job }) => {
             <span>{job.applications || 0} ứng viên</span>
           </div>
           <div className="flex space-x-2">
-            <button className="px-3 py-1 text-sm text-gray-600 hover:text-blue-600 transition-colors">
-              Lưu
+            <button
+              disabled={saving}
+              onClick={async () => {
+                if (!localStorage.getItem('token')) return navigate('/login');
+                if (userType && userType !== 'candidate' && userType !== 'admin') return;
+                try {
+                  setSaving(true);
+                  if (isSaved) {
+                    await api.delete(`/saved-jobs/${job.id}`);
+                    setIsSaved(false);
+                    if (savedIdsCache) savedIdsCache.delete(job.id);
+                  } else {
+                    await api.post('/saved-jobs', { jobId: job.id });
+                    setIsSaved(true);
+                    if (savedIdsCache) savedIdsCache.add(job.id);
+                  }
+                } catch (_) {
+                  // ignore for now
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className={`px-3 py-1 text-sm rounded ${isSaved ? 'text-blue-700 bg-blue-50' : 'text-gray-600 hover:text-blue-600'}`}
+            >
+              {isSaved ? 'Đã lưu' : 'Lưu'}
             </button>
             <Link
               to={`/job/${job.id}`}

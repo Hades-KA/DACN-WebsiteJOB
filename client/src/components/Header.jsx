@@ -10,6 +10,7 @@ const Header = () => {
   const token = localStorage.getItem('token');
   const userString = localStorage.getItem('user');
   const user = userString && userString !== 'undefined' && userString !== 'null' ? JSON.parse(userString) : {};
+  const userType = user?.userType; // 'candidate' | 'employer' | 'admin'
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -40,27 +41,33 @@ const Header = () => {
                 >
                   Trang chủ
                 </Link>
-                <Link 
-                  to="/cv-list" 
-                  className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                >
-                  <FileText className="w-4 h-4 mr-1" />
-                  Danh sách CV
-                </Link>
-                <Link 
-                  to="/post-job" 
-                  className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                >
-                  <Briefcase className="w-4 h-4 mr-1" />
-                  Đăng tin
-                </Link>
-                <Link 
-                  to="/dashboard" 
-                  className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                >
-                  <BarChart3 className="w-4 h-4 mr-1" />
-                  Dashboard
-                </Link>
+                {(userType === 'candidate' || userType === 'admin') && (
+                  <Link 
+                    to="/cv-list" 
+                    className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
+                  >
+                    <FileText className="w-4 h-4 mr-1" />
+                    Danh sách CV
+                  </Link>
+                )}
+                {(userType === 'employer' || userType === 'admin') && (
+                  <>
+                    <Link 
+                      to="/post-job" 
+                      className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
+                    >
+                      <Briefcase className="w-4 h-4 mr-1" />
+                      Đăng tin
+                    </Link>
+                    <Link 
+                      to="/dashboard" 
+                      className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
+                    >
+                      <BarChart3 className="w-4 h-4 mr-1" />
+                      Dashboard
+                    </Link>
+                  </>
+                )}
               </>
             )}
           </nav>
@@ -85,20 +92,40 @@ const Header = () => {
                       <p className="text-sm font-medium text-gray-900">{user.name}</p>
                       <p className="text-xs text-gray-500">{user.email}</p>
                     </div>
-                    <Link
-                      to="/dashboard"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      Dashboard
-                    </Link>
-                    <Link
-                      to="/cv-list"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      Danh sách CV
-                    </Link>
+                    {(userType === 'employer' || userType === 'admin') && (
+                      <Link
+                        to="/dashboard"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => setIsUserMenuOpen(false)}
+                      >
+                        Dashboard
+                      </Link>
+                    )}
+                    {(userType === 'candidate' || userType === 'admin') && (
+                      <>
+                        <Link
+                          to="/cv-list"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          onClick={() => setIsUserMenuOpen(false)}
+                        >
+                          Danh sách CV
+                        </Link>
+                        <Link
+                          to="/my-applications"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          onClick={() => setIsUserMenuOpen(false)}
+                        >
+                          Ứng tuyển
+                        </Link>
+                        <Link
+                          to="/saved-jobs"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          onClick={() => setIsUserMenuOpen(false)}
+                        >
+                          JOB đã lưu
+                        </Link>
+                      </>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center"
@@ -149,27 +176,42 @@ const Header = () => {
                   >
                     Trang chủ
                   </Link>
-                  <Link
-                    to="/dashboard"
-                    className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    Dashboard
-                  </Link>
-                  <Link
-                    to="/cv-list"
-                    className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    Danh sách CV
-                  </Link>
-                  <Link
-                    to="/post-job"
-                    className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    Đăng tin
-                  </Link>
+                  {(userType === 'employer' || userType === 'admin') && (
+                    <>
+                      <Link
+                        to="/dashboard"
+                        className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        Dashboard
+                      </Link>
+                      <Link
+                        to="/post-job"
+                        className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        Đăng tin
+                      </Link>
+                    </>
+                  )}
+                  {(userType === 'candidate' || userType === 'admin') && (
+                    <>
+                      <Link
+                        to="/cv-list"
+                        className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        Danh sách CV
+                      </Link>
+                      <Link
+                        to="/saved-jobs"
+                        className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        Việc đã lưu
+                      </Link>
+                    </>
+                  )}
                 </>
               )}
               {!token && (
