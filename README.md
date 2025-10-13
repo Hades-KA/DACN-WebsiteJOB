@@ -1,6 +1,6 @@
 # Job Hire Platform - Hệ thống tuyển dụng 
 
-Hệ thống web tuyển dụng tích hợp AI/ML để phân tích CV và dự đoán hiệu quả ứng viên, tương tự TopCV/VietnamWorks.
+Hệ thống web tuyển dụng tích hợp AI/ML để phân tích CV và dự đoán hiệu quả ứng viên
 
 ## 🚀 Tính năng chính
 
