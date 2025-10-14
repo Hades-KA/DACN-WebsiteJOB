@@ -65,4 +65,16 @@ router.post('/logout', auth, logout);
 router.get('/profile', auth, getProfile);
 router.put('/profile', auth, updateProfileValidation, updateProfile);
 
+// Lightweight endpoint to fetch current auth info
+router.get('/me', auth, (req, res) => {
+  res.json({
+    message: 'OK',
+    data: {
+      id: req.user.userId,
+      email: req.user.email,
+      userType: req.user.userType
+    }
+  });
+});
+
 module.exports = router;

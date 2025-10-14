@@ -41,7 +41,8 @@ const Header = () => {
                 >
                   Trang chủ
                 </Link>
-                {(userType === 'candidate' || userType === 'admin') && (
+                {/* Removed top-nav Admin link to avoid duplication; Admin link remains in dropdown and mobile menu */}
+                {userType === 'candidate' && (
                   <Link 
                     to="/cv-list" 
                     className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
@@ -50,7 +51,7 @@ const Header = () => {
                     Danh sách CV
                   </Link>
                 )}
-                {(userType === 'employer' || userType === 'admin') && (
+                {userType === 'employer' && (
                   <>
                     <Link 
                       to="/post-job" 
@@ -92,6 +93,15 @@ const Header = () => {
                       <p className="text-sm font-medium text-gray-900">{user.name}</p>
                       <p className="text-xs text-gray-500">{user.email}</p>
                     </div>
+                    {userType === 'admin' && (
+                      <Link
+                        to="/admin"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => setIsUserMenuOpen(false)}
+                      >
+                        Admin
+                      </Link>
+                    )}
                     {(userType === 'employer' || userType === 'admin') && (
                       <Link
                         to="/dashboard"
@@ -176,6 +186,15 @@ const Header = () => {
                   >
                     Trang chủ
                   </Link>
+                  {userType === 'admin' && (
+                    <Link
+                      to="/admin"
+                      className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
+                  )}
                   {(userType === 'employer' || userType === 'admin') && (
                     <>
                       <Link

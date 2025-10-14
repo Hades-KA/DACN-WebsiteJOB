@@ -70,6 +70,7 @@ app.use('/api/files', require('./src/routes/fileRoutes'));
 app.use('/api/ai', require('./src/routes/aiRoutes'));
 app.use('/api/users', require('./src/routes/userRoutes'));
 app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
+app.use('/api/admin', require('./src/routes/adminRoutes'));
 
 // Middleware xử lý lỗi
 app.use((err, req, res, next) => {

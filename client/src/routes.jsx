@@ -9,6 +9,12 @@ import SavedJobs from './pages/SavedJobs';
 import MyApplications from './pages/MyApplications';
 import JobPost from './pages/JobPost';
 import Dashboard from './pages/Dashboard';
+import AdminHome from './pages/admin/AdminHome';
+import AdminLayout from './pages/admin/AdminLayout';
+import AdminDashboard from './pages/admin/Dashboard';
+import AdminCompanies from './pages/admin/Companies';
+import AdminJobs from './pages/admin/Jobs';
+import AdminUsers from './pages/admin/Users';
 import Header from './components/Header';
 import Footer from './components/Footer';
 
@@ -64,6 +70,20 @@ function AppRoutes() {
             
             {/* Protected Routes */}
             <Route path="/job/:id" element={<JobDetail />} />
+            <Route 
+              path="/admin" 
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <AdminLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<AdminDashboard />} />
+              <Route path="companies" element={<AdminCompanies />} />
+              <Route path="jobs" element={<AdminJobs />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="settings" element={<AdminHome />} />
+            </Route>
             <Route 
               path="/dashboard" 
               element={

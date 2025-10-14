@@ -45,12 +45,12 @@ const Login = () => {
       // Redirect tùy vào userType
       const user = response.data.data.user;
       console.log('User type:', user.userType);
-      if (user.userType === 'candidate') {
-        navigate('/');  // Redirect đến trang chủ nếu là candidate
+      if (user.userType === 'admin') {
+        navigate('/admin'); // Admin vào thẳng trang admin
       } else if (user.userType === 'employer') {
-        navigate('/dashboard');  // Redirect đến dashboard nếu là employer
+        navigate('/dashboard'); // Employer vào dashboard
       } else {
-        navigate('/');  // Mặc định redirect đến trang chủ
+        navigate('/'); // Candidate về trang chủ
       }
     } catch (error) {
       console.error('Login error:', error);
