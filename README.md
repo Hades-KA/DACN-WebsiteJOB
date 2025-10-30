@@ -2,6 +2,54 @@
 
 Hệ thống web tuyển dụng tích hợp AI/ML để phân tích CV và dự đoán hiệu quả ứng viên
 
+## ⚡ Quick Start (dành cho thành viên team)
+
+1) Clone mã nguồn
+```bash
+git clone <repository-url>
+cd job-hire-platform
+```
+
+2) Cài đặt và chạy Backend (mở Terminal 1)
+```bash
+cd server
+npm install
+
+# Tạo file môi trường
+copy .env.example .env   # Trên Windows PowerShell dùng: cp .env.example .env
+
+# Cập nhật .env (ví dụ SQL Server local)
+# DB_DIALECT=mssql là bắt buộc khi dùng SQL Server
+#
+# DB_HOST=localhost
+# DB_PORT=1433
+# DB_NAME=HeThongTuyenDungDB
+# DB_USER=sa
+# DB_PASSWORD=your_password
+# DB_DIALECT=mssql
+# JWT_SECRET=your_super_secret_jwt_key
+# AI_API_URL=http://localhost:8000/api
+# AI_API_KEY=your_ai_api_key
+
+npm run dev   # chạy API tại http://localhost:5000 (hoặc cổng bạn cấu hình)
+```
+
+3) Cài đặt và chạy Frontend (mở Terminal 2)
+```bash
+cd client
+npm install
+npm run dev   # Vite dev server (ví dụ http://localhost:5173)
+```
+
+4) Đăng nhập và truy cập Admin
+- Đăng nhập bằng tài khoản có `userType=admin` (route Admin: `/admin`).
+- Các route công khai, đăng nhập/đăng ký, và dashboard nhà tuyển dụng vẫn hoạt động bình thường.
+
+5) Lỗi thường gặp
+- Kết nối DB thất bại: kiểm tra `DB_HOST/PORT/USER/PASSWORD/DB_NAME/DB_DIALECT` trong `server/.env`.
+- Cổng bị chiếm: đổi cổng trong cấu hình (hoặc tắt tiến trình đang dùng cổng đó).
+- AI service không phản hồi: kiểm tra `AI_API_URL` và service Python có chạy.
+
 ## 🚀 Tính năng chính
 
 ### Frontend (React + Vite)
@@ -247,12 +295,6 @@ cd server && npm start
 ## 📝 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
-## 📞 Liên hệ
-
-- Email: contact@jobhire.com
-- Phone: +84 123 456 789
-- Website: https://jobhire.com
 
 ## 🙏 Acknowledgments
 

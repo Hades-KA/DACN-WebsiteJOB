@@ -1,0 +1,29 @@
+{
+  "general": {
+    "siteName": "JobHire",
+    "logoUrl": "",
+    "faviconUrl": ""
+  },
+  "smtp": {
+    "host": "",
+    "port": 587,
+    "user": "",
+    "pass": "",
+    "fromEmail": ""
+  },
+  "oauth": {
+    "googleClientId": "",
+    "googleClientSecret": "",
+    "linkedinClientId": "",
+    "linkedinClientSecret": ""
+  },
+  "seo": {
+    "defaultTitle": "JobHire",
+    "defaultDescription": "",
+    "analyticsId": ""
+  },
+  "security": {
+    "requireApprovalForJobs": true,
+    "admin2FA": false
+  }
+}

@@ -171,4 +171,22 @@ export const fileService = {
   getFileInfo: (id) => api.get(`/files/${id}`),
 };
 
+// Admin Services
+export const adminService = {
+  // Users
+  listUsers: (params = {}) => api.get('/admin/users', { params }),
+  updateUserRole: (id, userType) => api.patch(`/admin/users/${id}/role`, { userType }),
+  updateUserStatus: (id, isActive) => api.patch(`/admin/users/${id}/status`, { isActive }),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  // Jobs
+  listJobs: (params = {}) => api.get('/admin/jobs', { params }),
+  updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${id}/status`, { isActive }),
+  updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${id}/featured`, { isFeatured }),
+  // Companies
+  listCompanies: (params = {}) => api.get('/admin/companies', { params }),
+  updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${id}/status`, { isActive }),
+  // Stats
+  getStats: () => api.get('/admin/stats'),
+};
+
 export default api;

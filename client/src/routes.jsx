@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import JobDetail from './pages/JobDetail';
 import Login from './pages/Login';
@@ -42,13 +42,14 @@ const PublicRoute = ({ children }) => {
   return <Navigate to="/" />;
 };
 
-function AppRoutes() {
+function Shell() {
+  const location = useLocation();
+  const isAdmin = location.pathname.startsWith('/admin');
   return (
-    <Router>
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-1">
-          <Routes>
+    <div className="min-h-screen flex flex-col">
+      {!isAdmin && <Header />}
+      <main className="flex-1">
+        <Routes>
             {/* Public Routes */}
             <Route path="/" element={<Home />} />
             <Route 
@@ -127,10 +128,17 @@ function AppRoutes() {
             
             {/* Catch all route */}
             <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
+        </Routes>
+      </main>
+      {!isAdmin && <Footer />}
+    </div>
+  );
+}
+
+function AppRoutes() {
+  return (
+    <Router>
+      <Shell />
     </Router>
   );
 }
