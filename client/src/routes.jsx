@@ -5,6 +5,10 @@ import JobDetail from './pages/JobDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import CVList from './pages/CVList';
+import ProfileLayout from './pages/profile/ProfileLayout';
+import ProfileOverview from './pages/profile/Overview';
+import CVListPage from './pages/CVList';
+import ProfilePersonal from './pages/profile/Personal.jsx';
 import SavedJobs from './pages/SavedJobs';
 import MyApplications from './pages/MyApplications';
 import JobPost from './pages/JobPost';
@@ -101,6 +105,22 @@ function Shell() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="/profile"
+              element={
+                <ProtectedRoute roles={["candidate","admin"]}>
+                  <ProfileLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<ProfileOverview />} />
+              <Route path="personal" element={<ProfilePersonal />} />
+              <Route path="documents" element={<CVListPage />} />
+              <Route path="attached" element={<Navigate to="documents" replace />} />
+              <Route path="jobs" element={<MyApplications />} />
+              <Route path="notifications" element={<ProfileOverview />} />
+              <Route path="account" element={<ProfileOverview />} />
+            </Route>
             <Route 
               path="/saved-jobs" 
               element={

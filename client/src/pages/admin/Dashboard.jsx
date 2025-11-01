@@ -126,7 +126,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          /* --- Hoạt động gần đây (di chuyển xuống dưới) --- */
+          {/* --- Hoạt động gần đây --- */}
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className={CARD}>
               <h2 className="text-lg font-semibold mb-3">Hoạt động gần đây</h2>

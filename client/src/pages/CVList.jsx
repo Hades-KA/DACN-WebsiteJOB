@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, Download, Eye, Star, User, MapPin, Calendar } from 'lucide-react';
 import { cvService } from '../services/api';
+import CVUpload from '../components/CVUpload';
 
 const CVList = () => {
   const [cvs, setCvs] = useState([]);
@@ -16,8 +17,12 @@ const CVList = () => {
 
   const fetchCVs = async () => {
     try {
+      setLoading(true);
       const response = await cvService.getAllCVs();
-      setCvs(response.data);
+      const items = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response?.data?.data) ? response.data.data : []);
+      setCvs(items);
     } catch (error) {
       console.error('Error fetching CVs:', error);
     } finally {
@@ -31,7 +36,10 @@ const CVList = () => {
         keyword: searchTerm,
         jobId: selectedJob
       });
-      setCvs(response.data);
+      const items = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response?.data?.data) ? response.data.data : []);
+      setCvs(items);
     } catch (error) {
       console.error('Error searching CVs:', error);
     }
@@ -55,6 +63,9 @@ const CVList = () => {
     window.open(`/cv/${cvId}`, '_blank');
   };
 
+  const userRaw = localStorage.getItem('user');
+  const user = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : {};
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -66,13 +77,34 @@ const CVList = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Danh sách CV ứng viên
-          </h1>
-          <p className="text-gray-600">
-            Tìm kiếm và quản lý hồ sơ ứng viên với AI phân tích
-          </p>
+        {/* Header card giống ITviec */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center">
+              <User className="w-7 h-7 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">{user?.name || user?.email || 'Hồ sơ của tôi'}</h2>
+              <p className="text-sm text-gray-600">{user?.email}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Hồ sơ đính kèm của bạn */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Hồ sơ đính kèm của bạn</h3>
+          {cvs.length === 0 ? (
+            <div className="border border-dashed border-gray-300 rounded-lg p-6">
+              <p className="text-sm text-gray-600 mb-4">Bạn chưa đính kèm CV nào. Tải lên CV để tối ưu quá trình tìm việc.</p>
+              <CVUpload onUploadSuccess={fetchCVs} />
+              <p className="text-xs text-gray-500 mt-3">Hỗ trợ định dạng: pdf, doc, docx, txt (tối đa 10MB)</p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-600">Bạn đã có {cvs.length} CV tải lên.</p>
+              <div className="w-80"><CVUpload onUploadSuccess={fetchCVs} /></div>
+            </div>
+          )}
         </div>
 
         {/* Search and Filters */}
@@ -182,7 +214,7 @@ const CVList = () => {
 
         {/* CV List */}
         <div className="space-y-4">
-          {cvs.map((cv) => (
+          {(Array.isArray(cvs) ? cvs : []).map((cv) => (
             <div key={cv.id} className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between">
                 <div className="flex-1">

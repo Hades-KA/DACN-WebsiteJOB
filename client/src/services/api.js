@@ -13,16 +13,39 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    console.log('API Request:', config.method?.toUpperCase(), config.url);
-    console.log('Request data:', config.data);
     const token = localStorage.getItem('token');
+    console.log('API Request:', config.method?.toUpperCase(), config.url);
+    console.log('Using token:', token ? 'Token exists' : 'No token');
+    console.log('Request headers:', config.headers);
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('Authorization header set with token');
+    } else {
+      console.warn('No authentication token found');
     }
+    
     return config;
   },
   (error) => {
     console.error('Request interceptor error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor
+api.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', response.config.method?.toUpperCase(), response.config.url, response.status);
+    return response;
+  },
+  (error) => {
+    console.error('API Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
     return Promise.reject(error);
   }
 );
@@ -89,12 +112,15 @@ export const cvService = {
 // User Services
 export const userService = {
   getProfile: () => api.get('/users/profile'),
-  updateProfile: (userData) => api.put('/users/profile', userData),
-  changePassword: (passwordData) => api.put('/users/change-password', passwordData),
+  updateProfile: (userData) => {
+    console.log('Updating profile with data:', userData);
+    return api.put('/users/profile', userData);
+  },
+  changePassword: (passwordData) => api.put('/users/password', passwordData),
   uploadAvatar: (formData) => api.post('/users/avatar', formData, {
     headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+      'Content-Type': 'multipart/form-data'
+    }
   }),
   getUsers: (params = {}) => api.get('/users', { params }),
   getUserById: (id) => api.get(`/users/${id}`),
