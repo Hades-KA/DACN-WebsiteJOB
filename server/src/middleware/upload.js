@@ -1,78 +1,65 @@
+// server/src/middleware/upload.js
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs').promises;
+const fs = require('fs');
 
-// Ensure upload directory exists
-const ensureUploadDir = async () => {
-  const uploadDir = process.env.UPLOAD_PATH || './uploads';
-  try {
-    await fs.access(uploadDir);
-  } catch (error) {
-    await fs.mkdir(uploadDir, { recursive: true });
-  }
-  return uploadDir;
-};
+// Đường dẫn lưu file
+const uploadRoot = process.env.UPLOAD_PATH
+  ? path.isAbsolute(process.env.UPLOAD_PATH)
+    ? process.env.UPLOAD_PATH
+    : path.resolve(process.cwd(), process.env.UPLOAD_PATH)
+  : path.resolve(process.cwd(), 'uploads');
 
-// Configure storage
+// Đảm bảo thư mục tồn tại
+if (!fs.existsSync(uploadRoot)) {
+  fs.mkdirSync(uploadRoot, { recursive: true });
+}
+
+// Cấu hình storage
 const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = await ensureUploadDir();
-    cb(null, uploadDir);
+  destination: (_req, _file, cb) => cb(null, uploadRoot),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, ext).replace(/\s+/g, '_');
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `cv-${base}-${unique}${ext}`);
   },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `cv-${uniqueSuffix}${ext}`);
-  }
 });
 
-// File filter
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'pdf,doc,docx,txt').split(',');
-  const fileExt = path.extname(file.originalname).toLowerCase().substring(1);
-  
-  if (allowedTypes.includes(fileExt)) {
-    cb(null, true);
-  } else {
-    cb(new Error(`File type .${fileExt} is not allowed. Allowed types: ${allowedTypes.join(', ')}`), false);
-  }
+// Lọc loại file
+const fileFilter = (_req, file, cb) => {
+  const allowed = (process.env.ALLOWED_FILE_TYPES || 'pdf,doc,docx')
+    .split(',')
+    .map((x) => '.' + x.trim().toLowerCase());
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowed.includes(ext)) return cb(null, true);
+  return cb(new Error(`File type ${ext} is not allowed. Allowed: ${allowed.join(', ')}`), false);
 };
 
-// Configure multer
+// Multer instance
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+  fileFilter,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
-    files: 1
-  }
+    fileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 5 * 1024 * 1024, // 5MB default
+    files: 1,
+  },
 });
 
-// Error handling middleware
-const handleUploadError = (error, req, res, next) => {
+// Middleware xử lý lỗi upload
+const handleUploadError = (error, _req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        message: 'File too large. Maximum size is 10MB.'
-      });
+      return res.status(400).json({ message: 'File quá lớn. Tối đa 5MB.' });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({
-        message: 'Too many files. Only one file allowed.'
-      });
+      return res.status(400).json({ message: 'Chỉ cho phép 1 file.' });
     }
   }
-  
-  if (error.message.includes('File type')) {
-    return res.status(400).json({
-      message: error.message
-    });
+  if (error && error.message?.startsWith('File type')) {
+    return res.status(400).json({ message: error.message });
   }
-
-  next(error);
+  return next(error);
 };
 
-module.exports = {
-  upload,
-  handleUploadError
-};
+module.exports = { upload, handleUploadError };

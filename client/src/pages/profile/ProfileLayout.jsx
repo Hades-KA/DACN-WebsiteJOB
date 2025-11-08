@@ -1,11 +1,12 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { 
-  LayoutGrid, 
-  User, 
-  Briefcase, 
-  Bell, 
-  Settings
+import {
+  LayoutGrid,
+  User,
+  Briefcase,
+  Bell,
+  Settings,
+  Bookmark,       
 } from 'lucide-react';
 
 const itemClass = ({ isActive }) =>
@@ -31,7 +32,6 @@ export default function ProfileLayout() {
                 {user?.name || user?.email || 'User'}
               </div>
 
-              {/* Menu điều hướng */}
               <nav className="space-y-1">
                 <NavLink end to="/profile" className={itemClass}>
                   <LayoutGrid className="w-4 h-4" />
@@ -43,9 +43,14 @@ export default function ProfileLayout() {
                   Hồ sơ của tôi
                 </NavLink>
 
-                <NavLink to="/profile/jobs" className={itemClass}>
+                <NavLink to="/profile/my-applications" className={itemClass}>
                   <Briefcase className="w-4 h-4" />
                   Ứng tuyển của tôi
+                </NavLink>
+
+                <NavLink to="/profile/saved-jobs" className={itemClass}>
+                  <Bookmark className="w-4 h-4" />
+                  Việc làm đã lưu
                 </NavLink>
 
                 <NavLink to="/profile/notifications" className={itemClass}>
@@ -61,7 +66,7 @@ export default function ProfileLayout() {
             </div>
           </aside>
 
-          {/* Nội dung chính - Sẽ hiển thị trang tương ứng */}
+          {/* Nội dung chính */}
           <section className="md:col-span-9">
             <Outlet />
           </section>

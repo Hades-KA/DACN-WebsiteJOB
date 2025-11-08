@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { jobService, applicationService, cvService } from '../services/api';
-import { useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { jobService, cvService } from '../services/api';
 import { MapPin, DollarSign, Clock, Building } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -10,20 +10,30 @@ const JobDetail = () => {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Apply modal
   const [applyOpen, setApplyOpen] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // CV list
   const [cvs, setCvs] = useState([]);
   const [loadingCvs, setLoadingCvs] = useState(false);
   const [selectedCvId, setSelectedCvId] = useState('');
+
+  // Current user
+  const userRaw = localStorage.getItem('user');
+  const currentUser = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
+  const userType = currentUser?.userType;
+  const currentUserId = currentUser?.id;
 
   useEffect(() => {
     const fetchJob = async () => {
       try {
         const res = await jobService.getJobById(id);
-        setJob(res.data.data);
+        setJob(res.data?.data || res.data);
       } catch (err) {
-        setError(err.response?.data?.message || 'Không tải được chi tiết công việc');
+        setError(err?.response?.data?.message || 'Không tải được chi tiết công việc');
       } finally {
         setLoading(false);
       }
@@ -38,30 +48,67 @@ const JobDetail = () => {
       try {
         const parsed = JSON.parse(skills);
         if (Array.isArray(parsed)) return parsed;
-        return skills.split(',').map(s => s.trim()).filter(Boolean);
-      } catch (_) {
-        return skills.split(',').map(s => s.trim()).filter(Boolean);
-      }
+      } catch (_) { /* ignore */ }
+      return skills.split(',').map(s => s.trim()).filter(Boolean);
     }
     return [];
   };
 
+  const openApply = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return navigate('/login');
+    if (userType && userType !== 'candidate' && userType !== 'admin') {
+      toast.info('Chỉ ứng viên mới được nộp đơn');
+      return;
+    }
+
+    setApplyOpen(true);
+    setLoadingCvs(true);
+    try {
+      const res = await cvService.getAllCVs();
+      let items = res.data?.data || res.data || [];
+
+      // Lọc CV của chính user (nếu có candidateId)
+      if (currentUserId) {
+        items = items.filter(cv => String(cv.candidateId || '') === String(currentUserId));
+      }
+      setCvs(items);
+      if (items.length > 0) setSelectedCvId(items[0].id);
+    } catch (e) {
+      setCvs([]);
+    } finally {
+      setLoadingCvs(false);
+    }
+  };
+
+  const submitApply = async () => {
+    try {
+      setSubmitting(true);
+      const payload = {};
+      if (selectedCvId) payload.cvId = selectedCvId;
+      if (coverLetter?.trim()) payload.coverLetter = coverLetter.trim();
+
+      await jobService.applyJob(id, payload);
+      toast.success('Đã nộp ứng tuyển thành công');
+      setApplyOpen(false);
+      setCoverLetter('');
+      setSelectedCvId('');
+      // Optional: chuyển sang mục Ứng tuyển của tôi
+      // navigate('/profile/my-applications');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Nộp ứng tuyển thất bại';
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) {
-    return (
-      <div className="min-h-[50vh] flex items-center justify-center text-gray-600">
-        Đang tải...
-      </div>
-    );
+    return <div className="min-h-[50vh] flex items-center justify-center text-gray-600">Đang tải...</div>;
   }
-
   if (error) {
-    return (
-      <div className="min-h-[50vh] flex items-center justify-center text-red-600">
-        {error}
-      </div>
-    );
+    return <div className="min-h-[50vh] flex items-center justify-center text-red-600">{error}</div>;
   }
-
   if (!job) return null;
 
   const skills = parseSkills(job.skills).slice(0, 12);
@@ -80,28 +127,7 @@ const JobDetail = () => {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  const token = localStorage.getItem('token');
-                  const user = localStorage.getItem('user');
-                  const userType = user && user !== 'undefined' && user !== 'null' ? JSON.parse(user)?.userType : null;
-                  if (!token) return navigate('/login');
-                  if (userType && userType !== 'candidate' && userType !== 'admin') return;
-                  setApplyOpen(true);
-                  // Load CVs when opening modal
-                  (async () => {
-                    try {
-                      setLoadingCvs(true);
-                      const res = await cvService.getAllCVs();
-                      const items = res.data?.data || res.data || [];
-                      setCvs(items);
-                      if (items.length > 0) setSelectedCvId(items[0].id);
-                    } catch (_) {
-                      setCvs([]);
-                    } finally {
-                      setLoadingCvs(false);
-                    }
-                  })();
-                }}
+                onClick={openApply}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 Ứng tuyển
@@ -153,43 +179,42 @@ const JobDetail = () => {
         </div>
       </div>
 
+      {/* Modal apply */}
       {applyOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-lg shadow-lg p-6">
             <h3 className="text-lg font-semibold mb-2">Ứng tuyển: {job.title}</h3>
             <p className="text-sm text-gray-600 mb-4">Chọn CV để nộp và nhập thư giới thiệu (tùy chọn).</p>
+
             <div className="mb-4">
               <div className="font-medium mb-2">Chọn CV</div>
               {loadingCvs ? (
                 <div className="text-sm text-gray-500">Đang tải CV...</div>
+              ) : cvs.length === 0 ? (
+                <div className="text-sm text-gray-500">
+                  Bạn chưa có CV nào. Hãy vào <Link to="/cv-list" className="text-blue-600 underline">Danh sách CV</Link> để tải lên.
+                </div>
               ) : (
-                <>
-                  {cvs.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      Bạn chưa có CV nào. Hãy vào <Link to="/cv-list" className="text-blue-600 underline">Danh sách CV</Link> để tải lên.
-                    </div>
-                  ) : (
-                    <div className="max-h-40 overflow-auto border rounded p-2 space-y-2">
-                      {cvs.map(cv => (
-                        <label key={cv.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input
-                            type="radio"
-                            name="cv"
-                            value={cv.id}
-                            checked={selectedCvId === cv.id}
-                            onChange={() => setSelectedCvId(cv.id)}
-                          />
-                          <span>{cv.filename || cv.candidateName || 'CV'}</span>
-                          {cv.ai_score ? (
-                            <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">AI {cv.ai_score}</span>
-                          ) : null}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </>
+                <div className="max-h-40 overflow-auto border rounded p-2 space-y-2">
+                  {cvs.map(cv => (
+                    <label key={cv.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="cv"
+                        value={cv.id}
+                        checked={selectedCvId === cv.id}
+                        onChange={() => setSelectedCvId(cv.id)}
+                      />
+                      <span>{cv.filename || cv.candidateName || 'CV'}</span>
+                      {cv.ai_score ? (
+                        <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">AI {cv.ai_score}</span>
+                      ) : null}
+                    </label>
+                  ))}
+                </div>
               )}
             </div>
+
             <textarea
               value={coverLetter}
               onChange={(e) => setCoverLetter(e.target.value)}
@@ -197,6 +222,7 @@ const JobDetail = () => {
               placeholder="Thư giới thiệu..."
               className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+
             <div className="mt-4 flex justify-end gap-3">
               <button
                 onClick={() => setApplyOpen(false)}
@@ -206,22 +232,7 @@ const JobDetail = () => {
                 Hủy
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    setSubmitting(true);
-                    const payload = { jobId: id, coverLetter: coverLetter?.trim() || undefined };
-                    if (selectedCvId) payload.cvId = selectedCvId;
-                    await applicationService.createApplication(payload);
-                    setApplyOpen(false);
-                    setCoverLetter('');
-                    setSelectedCvId('');
-                    alert('Đã nộp ứng tuyển thành công');
-                  } catch (err) {
-                    alert(err.response?.data?.message || 'Nộp ứng tuyển thất bại');
-                  } finally {
-                    setSubmitting(false);
-                  }
-                }}
+                onClick={submitApply}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
                 disabled={submitting}
               >
@@ -231,7 +242,6 @@ const JobDetail = () => {
           </div>
         </div>
       )}
-
     </div>
   );
 };

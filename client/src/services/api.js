@@ -1,67 +1,51 @@
+// client/src/services/api.js
 import axios from 'axios';
 
-// Create axios instance with base configuration
-const apiBase = `${(import.meta?.env?.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '')}/api`;
+// Base URL
+const rawBase = import.meta?.env?.VITE_API_URL || 'http://localhost:5001';
+const apiBase = `${String(rawBase).replace(/\/$/, '')}/api`;
+
+// Axios instance
 const api = axios.create({
   baseURL: apiBase,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor to add auth token
+// Helpers
+const getToken = () =>
+  localStorage.getItem('token') ||
+  localStorage.getItem('access_token') ||
+  localStorage.getItem('accessToken') ||
+  null;
+
+// Request interceptor: gắn Authorization
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    console.log('API Request:', config.method?.toUpperCase(), config.url);
-    console.log('Using token:', token ? 'Token exists' : 'No token');
-    console.log('Request headers:', config.headers);
-    
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      console.log('Authorization header set with token');
-    } else {
-      console.warn('No authentication token found');
-    }
-    
+    const token = getToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
-  (error) => {
-    console.error('Request interceptor error:', error);
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor
+// Response interceptor: log + xử lý 401
 api.interceptors.response.use(
-  (response) => {
-    console.log('API Response:', response.config.method?.toUpperCase(), response.config.url, response.status);
-    return response;
-  },
+  (response) => response,
   (error) => {
+    const status = error?.response?.status;
     console.error('API Error:', {
+      method: error.config?.method?.toUpperCase(),
       url: error.config?.url,
-      status: error.response?.status,
+      status,
       data: error.response?.data,
-      message: error.message
+      msg: error.message,
     });
-    return Promise.reject(error);
-  }
-);
 
-// Response interceptor to handle common errors
-api.interceptors.response.use(
-  (response) => {
-    console.log('API Response:', response.status, response.config.url);
-    console.log('Response data:', response.data);
-    return response;
-  },
-  (error) => {
-    console.error('API Error:', error.response?.status, error.config?.url);
-    console.error('Error details:', error.response?.data);
-    if (error.response?.status === 401) {
+    if (status === 401) {
       localStorage.removeItem('token');
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('accessToken');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
@@ -69,7 +53,7 @@ api.interceptors.response.use(
   }
 );
 
-// Auth Services
+// Auth
 export const authService = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
@@ -79,7 +63,7 @@ export const authService = {
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };
 
-// Job Services
+// Job
 export const jobService = {
   getAllJobs: (params = {}) => api.get('/jobs', { params }),
   getJobById: (id) => api.get(`/jobs/${id}`),
@@ -90,17 +74,16 @@ export const jobService = {
   getJobsByCompany: (companyId) => api.get(`/jobs/company/${companyId}`),
   applyJob: (jobId, applicationData) => api.post(`/jobs/${jobId}/apply`, applicationData),
   getJobApplications: (jobId) => api.get(`/jobs/${jobId}/applications`),
+  // NEW: toggle status
+  updateJobStatus: (id, payload) => api.patch(`/jobs/${id}/status`, payload),
 };
 
-// CV Services
+// CV
 export const cvService = {
   getAllCVs: (params = {}) => api.get('/cvs', { params }),
   getCVById: (id) => api.get(`/cvs/${id}`),
-  uploadCV: (formData) => api.post('/cvs/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  }),
+  uploadCV: (formData) =>
+    api.post('/cvs/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   updateCV: (id, cvData) => api.put(`/cvs/${id}`, cvData),
   deleteCV: (id) => api.delete(`/cvs/${id}`),
   searchCVs: (searchParams) => api.get('/cvs/search', { params: searchParams }),
@@ -109,26 +92,20 @@ export const cvService = {
   getCVAnalysis: (id) => api.get(`/cvs/${id}/analysis`),
 };
 
-// User Services
+// User
 export const userService = {
   getProfile: () => api.get('/users/profile'),
-  updateProfile: (userData) => {
-    console.log('Updating profile with data:', userData);
-    return api.put('/users/profile', userData);
-  },
+  updateProfile: (userData) => api.patch('/users/profile', userData),
   changePassword: (passwordData) => api.put('/users/password', passwordData),
-  uploadAvatar: (formData) => api.post('/users/avatar', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  }),
+  uploadAvatar: (formData) =>
+    api.post('/users/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getUsers: (params = {}) => api.get('/users', { params }),
   getUserById: (id) => api.get(`/users/${id}`),
   updateUser: (id, userData) => api.put(`/users/${id}`, userData),
   deleteUser: (id) => api.delete(`/users/${id}`),
 };
 
-// Dashboard Services
+// Dashboard
 export const dashboardService = {
   getDashboardData: () => api.get('/dashboard'),
   getStats: () => api.get('/dashboard/stats'),
@@ -138,13 +115,10 @@ export const dashboardService = {
   getAnalytics: (period = '30d') => api.get(`/dashboard/analytics?period=${period}`),
 };
 
-// AI/ML Services
+// AI
 export const aiService = {
   analyzeCV: (cvId) => api.post(`/ai/analyze-cv/${cvId}`),
-  predictPerformance: (candidateId, jobId) => api.post('/ai/predict-performance', {
-    candidateId,
-    jobId,
-  }),
+  predictPerformance: (candidateId, jobId) => api.post('/ai/predict-performance', { candidateId, jobId }),
   getJobRecommendations: (candidateId) => api.get(`/ai/job-recommendations/${candidateId}`),
   getCandidateRecommendations: (jobId) => api.get(`/ai/candidate-recommendations/${jobId}`),
   analyzeJobMatch: (cvId, jobId) => api.post('/ai/analyze-job-match', { cvId, jobId }),
@@ -153,18 +127,19 @@ export const aiService = {
   optimizeJobPosting: (jobId) => api.post(`/ai/optimize-job-posting/${jobId}`),
 };
 
-// Company Services
+// Company
 export const companyService = {
   getCompanies: (params = {}) => api.get('/companies', { params }),
   getCompanyById: (id) => api.get(`/companies/${id}`),
   createCompany: (companyData) => api.post('/companies', companyData),
   updateCompany: (id, companyData) => api.put(`/companies/${id}`, companyData),
   deleteCompany: (id) => api.delete(`/companies/${id}`),
-  getCompanyJobs: (id) => api.get(`/companies/${id}/jobs`),
+  // NEW: truyền params, ví dụ { active: 'all' }
+  getCompanyJobs: (id, params = {}) => api.get(`/companies/${id}/jobs`, { params }),
   getCompanyStats: (id) => api.get(`/companies/${id}/stats`),
 };
 
-// Application Services
+// Application
 export const applicationService = {
   getApplications: (params = {}) => api.get('/applications', { params }),
   getApplicationById: (id) => api.get(`/applications/${id}`),
@@ -174,9 +149,10 @@ export const applicationService = {
   updateApplicationStatus: (id, status) => api.put(`/applications/${id}/status`, { status }),
   getApplicationsByJob: (jobId) => api.get(`/applications/job/${jobId}`),
   getApplicationsByCandidate: (candidateId) => api.get(`/applications/candidate/${candidateId}`),
+  getMyApplications: (params = {}) => api.get('/applications/candidate/me', { params }),
 };
 
-// Notification Services
+// Notification
 export const notificationService = {
   getNotifications: (params = {}) => api.get('/notifications', { params }),
   markAsRead: (id) => api.put(`/notifications/${id}/read`),
@@ -185,33 +161,26 @@ export const notificationService = {
   createNotification: (notificationData) => api.post('/notifications', notificationData),
 };
 
-// File Services
+// File
 export const fileService = {
-  uploadFile: (formData) => api.post('/files/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  }),
+  uploadFile: (formData) =>
+    api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   downloadFile: (id) => api.get(`/files/${id}/download`, { responseType: 'blob' }),
   deleteFile: (id) => api.delete(`/files/${id}`),
   getFileInfo: (id) => api.get(`/files/${id}`),
 };
 
-// Admin Services
+// Admin
 export const adminService = {
-  // Users
   listUsers: (params = {}) => api.get('/admin/users', { params }),
   updateUserRole: (id, userType) => api.patch(`/admin/users/${id}/role`, { userType }),
   updateUserStatus: (id, isActive) => api.patch(`/admin/users/${id}/status`, { isActive }),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
-  // Jobs
   listJobs: (params = {}) => api.get('/admin/jobs', { params }),
   updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${id}/status`, { isActive }),
   updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${id}/featured`, { isFeatured }),
-  // Companies
   listCompanies: (params = {}) => api.get('/admin/companies', { params }),
   updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${id}/status`, { isActive }),
-  // Stats
   getStats: () => api.get('/admin/stats'),
 };
 
