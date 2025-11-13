@@ -28,21 +28,49 @@ const sanitizeUser = (u) => {
 // ========== AUTH ==========
 exports.register = async (req, res) => {
   try {
+    // validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
     }
 
-    const { name, email, password, phone, company, userType } = req.body;
+    let { name, email, password, phone, company, userType } = req.body || {};
+    email = (email || '').trim().toLowerCase();
+    userType = userType || 'candidate';
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      company: userType === 'employer' ? company : null,
-      userType,
+    // check duplicate email
+    const existed = await User.findOne({ where: { email } });
+    if (existed) {
+      return res.status(409).json({ message: 'Email đã tồn tại' });
+    }
+
+    // hash password (không dựa vào hook để tránh rủi ro khi dùng raw)
+    const hash = await bcrypt.hash(password, 12);
+
+    // raw insert (tránh OUTPUT INSERTED; dùng GETDATE() để không lỗi DATETIME)
+    const sql = `
+      INSERT INTO [dbo].[users]
+      ([id],[name],[email],[password],[phone],[userType],[company],[isActive],[isVerified],[createdAt],[updatedAt])
+      VALUES (NEWID(), :name, :email, :password, :phone, :userType, :company, 1, 0, GETDATE(), GETDATE())
+    `;
+
+    await sequelize.query(sql, {
+      replacements: {
+        name,
+        email,
+        password: hash,
+        phone: phone || null,
+        userType,
+        company: userType === 'employer' ? (company || null) : null,
+      },
+      type: QueryTypes.INSERT,
     });
+
+    // select lại user
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(500).json({ message: 'Registration failed', error: 'User not found right after insert' });
+    }
 
     const token = generateToken(user.id);
     return res.status(201).json({
@@ -50,10 +78,12 @@ exports.register = async (req, res) => {
       data: { user: sanitizeUser(user), token },
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('Registration error:', error.original?.message || error.message);
     return res.status(500).json({
       message: 'Registration failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      error: process.env.NODE_ENV === 'development'
+        ? (error.original?.message || error.message)
+        : 'Internal server error',
     });
   }
 };
@@ -66,7 +96,7 @@ exports.login = async (req, res) => {
     }
 
     const { email, password } = req.body;
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: { email: (email || '').toLowerCase() } });
     if (!user) return res.status(400).json({ message: 'Đăng nhập thất bại', error: 'Email hoặc mật khẩu không đúng' });
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -75,10 +105,10 @@ exports.login = async (req, res) => {
     const token = generateToken(user.id);
     return res.json({ message: 'Login successful', data: { user: sanitizeUser(user), token } });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login error:', error.original?.message || error.message);
     return res.status(500).json({
       message: 'Login failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? (error.original?.message || error.message) : 'Internal server error',
     });
   }
 };
@@ -152,10 +182,6 @@ exports.updateProfile = async (req, res) => {
     if (typeof skillsCsv !== 'undefined')   updates.skills = skillsCsv;
     delete updates.email;
 
-    if (!Object.keys(updates).length) {
-      return res.status(400).json({ message: 'Không có trường hợp lệ để cập nhật' });
-    }
-
     try {
       await User.update(updates, {
         where: { id },
@@ -213,7 +239,6 @@ exports.uploadProfileCV = async (req, res) => {
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Nếu có CV cũ thì xóa file cũ
     if (user.cvUrl) {
       try {
         const currentName = user.cvUrl.split('/uploads/')[1];

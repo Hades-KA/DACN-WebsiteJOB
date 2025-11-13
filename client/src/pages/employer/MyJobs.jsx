@@ -1,104 +1,305 @@
-// client/src/pages/employer/MyJobs.jsx
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import api, { companyService, jobService } from '../../services/api';
+import { FiPlus, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+
+const PAGE_SIZE = 10;
+
+const TABS = [
+  { key: 'all',        label: 'Tất cả tin' },
+  { key: 'approved',   label: 'Đã duyệt' },   // isActive = true
+  { key: 'locked',     label: 'Đã khóa' },    // isActive = false
+  { key: 'pending',    label: 'Chờ duyệt' },  // để khớp giao diện (chưa có dữ liệu)
+  { key: 'violations', label: 'Vi phạm' },    // để khớp giao diện (chưa có dữ liệu)
+];
+
+// Mã tin hiển thị
+const jobCode = (index, page, pageSize) =>
+  `JOB-${String((page - 1) * pageSize + index + 1).padStart(5, '0')}`;
+
+// Ngày đăng dạng VI
+const formatDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
+
+// Badge trạng thái
+const StatusBadge = ({ approved }) => (
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ${
+      approved
+        ? 'bg-green-50 text-green-700 ring-green-200'
+        : 'bg-gray-100 text-gray-600 ring-gray-200'
+    }`}
+  >
+    {approved ? 'Đã duyệt' : 'Đã khóa'}
+  </span>
+);
 
 export default function MyJobs() {
-  const [me, setMe] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [updatingId, setUpdatingId] = useState(null);
+  const navigate = useNavigate();
 
-  const getCachedUser = () => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } };
-  const getEmployerId = (u) => u?.id || u?.userId || getCachedUser()?.id || getCachedUser()?.userId;
+  const [tab, setTab] = useState('all');
+  const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    totalPages: 1,
+    totalItems: 0,
+    itemsPerPage: PAGE_SIZE,
+  });
+  const [loading, setLoading] = useState(true);
+  const [workingId, setWorkingId] = useState(null); // trạng thái khi bấm Xóa
 
-  useEffect(() => {
-    api.get('/auth/me')
-      .then(r => setMe(r.data?.user || r.data))
-      .catch(() => setMe(getCachedUser()));
-  }, []);
-
-  const loadJobs = async (empId) => {
+  // Lấy user local
+  const getLocalUser = () => {
     try {
-      const r = await companyService.getCompanyJobs(empId, { active: 'all' });
-      setJobs(r.data?.data || r.data || []);
+      return JSON.parse(localStorage.getItem('user') || 'null');
     } catch {
-      setJobs([]);
+      return null;
+    }
+  };
+
+  const getEmployerId = (u) => u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
+
+  // Map tab -> tham số active cho API
+  const activeParam = useMemo(() => {
+    if (tab === 'approved') return 'true';
+    if (tab === 'locked') return 'false';
+    return 'all';
+  }, [tab]);
+
+  // Tải danh sách job
+  const load = async (p = page) => {
+    setLoading(true);
+    try {
+      let u = getLocalUser();
+      try {
+        const meRes = await api.get('/auth/me');
+        u = meRes.data?.user || meRes.data || u;
+      } catch { /* dùng local nếu /auth/me lỗi */ }
+
+      const employerId = getEmployerId(u);
+      if (!employerId) {
+        setRows([]);
+        setPagination({ totalPages: 1, totalItems: 0, itemsPerPage: PAGE_SIZE });
+        return;
+      }
+
+      const res = await companyService.getCompanyJobs(employerId, {
+        active: activeParam,
+        page: p,
+        limit: PAGE_SIZE,
+      });
+
+      const data = res.data?.data || res.data || [];
+      const pag =
+        res.data?.pagination || {
+          currentPage: p,
+          totalPages: Math.max(1, Math.ceil((data.length || 0) / PAGE_SIZE)),
+          totalItems: data.length || 0,
+          itemsPerPage: PAGE_SIZE,
+        };
+
+      // “Chờ duyệt/Vi phạm” để trống (khớp giao diện demo)
+      const finalRows =
+        tab === 'pending' || tab === 'violations' ? [] : (Array.isArray(data) ? data : []);
+
+      setRows(finalRows);
+      setPagination(pag);
+      setPage(pag.currentPage || p);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const id = getEmployerId(me);
-    if (!id) return;
-    loadJobs(id);
-  }, [me]);
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
-  const toggleStatus = async (job) => {
+  // Phân trang
+  const toPage = async (to) => {
+    if (to < 1 || to > (pagination?.totalPages || 1)) return;
+    await load(to);
+  };
+
+  // Xóa (UI y chang video). Nếu DELETE bị chặn (FK/timeout) -> fallback đóng tin để demo không kẹt
+  const handleDelete = async (job) => {
+    if (!window.confirm(`Xóa tin “${job.title}”? Hành động không thể hoàn tác.`)) return;
     try {
-      setUpdatingId(job.id);
-      const next = !job.isActive;
-      const { data } = await jobService.updateJobStatus(job.id, { isActive: next });
-      const updated = data?.data || data;
-      setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, isActive: updated.isActive } : j));
+      setWorkingId(job.id);
+      await jobService.deleteJob(job.id);    // cố xóa cứng
+      await load(page);
     } catch (e) {
-      console.error('Toggle status error:', e);
-      alert(e?.response?.data?.message || 'Không đổi trạng thái được');
+      // Fallback mềm: đóng tin nếu xóa cứng thất bại
+      try {
+        await jobService.updateJobStatus(job.id, { isActive: false, isFeatured: false });
+        await load(page);
+        alert('Không xóa được do ràng buộc dữ liệu. Tin đã được đóng (ẩn) để thay thế.');
+      } catch {
+        alert(e?.response?.data?.message || 'Xóa thất bại');
+      }
     } finally {
-      setUpdatingId(null);
+      setWorkingId(null);
     }
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="font-semibold text-lg">Quản lý tin tuyển dụng</div>
-        <Link to="/employer/jobs/new" className="px-3 py-2 bg-blue-600 text-white rounded-md">Đăng tin</Link>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500 border-b">
-              <th className="py-2">Vị trí</th>
-              <th>Công ty</th>
-              <th>Địa điểm</th>
-              <th>Trạng thái</th>
-              <th>Lượt xem</th>
-              <th>Đơn</th>
-              <th className="text-right">Hành động</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map(j => (
-              <tr key={j.id} className="border-b">
-                <td className="py-2">{j.title}</td>
-                <td>{j.company}</td>
-                <td>{j.location}</td>
-                <td>{j.isActive ? <span className="text-green-600">Đang mở</span> : <span className="text-gray-600">Đã đóng</span>}</td>
-                <td>{j.viewsCount || 0}</td>
-                <td>{j.applicationsCount || 0}</td>
-                <td className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Link to={`/employer/jobs/${j.id}/applicants`} className="text-blue-600 hover:underline">
-                      Xem ứng viên
-                    </Link>
-                    <button
-                      onClick={() => toggleStatus(j)}
-                      disabled={updatingId === j.id}
-                      className={`px-3 py-1.5 rounded-md border ${
-                        j.isActive ? 'text-gray-700 bg-gray-100 hover:bg-gray-200' : 'text-green-700 bg-green-100 hover:bg-green-200'
-                      } ${updatingId === j.id ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      {j.isActive ? 'Đóng tin' : 'Mở tin'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
+    <div className="relative">
+      <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5">
+        {/* Header */}
+        <div className="px-8 py-4 border-b flex items-center justify-between">
+          <div className="text-[18px] font-semibold text-gray-900">Quản lý tin tuyển dụng</div>
+          <Link
+            to="/employer/jobs/new"
+            className="px-3.5 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
+          >
+            Tạo tin mới
+          </Link>
+        </div>
+
+        {/* Tabs */}
+        <div className="px-8 pt-2">
+          <div className="flex items-center gap-8 text-sm">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`pb-2 -mb-px border-b-2 transition-colors ${
+                  tab === t.key
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {t.label}
+              </button>
             ))}
-            {!jobs.length && (
-              <tr><td colSpan={7} className="py-6 text-center text-gray-500">Chưa có tin nào</td></tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        {/* Bảng (đúng cột như demo) */}
+        <div className="px-8 pb-0 overflow-x-auto">
+          <table className="min-w-full text-[13px]">
+            <thead>
+              <tr className="text-gray-500 border-b">
+                <th className="py-2 px-3 text-left w-[120px]">Mã tin</th>
+                <th className="py-2 px-3 text-left">Tiêu đề</th>
+                <th className="py-2 px-3 text-center w-[120px]">Ngày đăng</th>
+                <th className="py-2 px-3 text-center w-[110px]">Lượt xem</th>
+                <th className="py-2 px-3 text-center w-[130px]">Lượt ứng tuyển</th>
+                <th className="py-2 px-3 text-center w-[110px]">Trạng thái</th>
+                <th className="py-2 px-3 text-left w-[220px]">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-gray-500">
+                    Đang tải...
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-gray-500">
+                    Không có dữ liệu
+                  </td>
+                </tr>
+              ) : (
+                rows.map((j, idx) => (
+                  <tr key={j.id} className="border-b last:border-b-0 hover:bg-gray-50/60">
+                    <td className="py-2 px-3 align-middle">
+                      {jobCode(idx, page, pagination.itemsPerPage || PAGE_SIZE)}
+                    </td>
+
+                    <td className="py-2 px-3 align-middle">
+                      <div className="font-medium text-gray-900 truncate leading-[18px]">
+                        {j.title}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">{j.location || ''}</div>
+                    </td>
+
+                    <td className="py-2 px-3 text-center align-middle">
+                      {formatDate(j.createdAt)}
+                    </td>
+
+                    <td className="py-2 px-3 text-center align-middle">
+                      {j.viewsCount ?? 0}
+                    </td>
+
+                    <td className="py-2 px-3 text-center align-middle">
+                      {j.applicationsCount ?? 0}
+                    </td>
+
+                    <td className="py-2 px-3 text-center align-middle">
+                      <StatusBadge approved={!!j.isActive} />
+                    </td>
+
+                    <td className="py-2 px-3 align-middle">
+                      <div className="flex items-center gap-4 whitespace-nowrap">
+                        <Link
+                          to={`/employer/jobs/${j.id}/applicants`}
+                          className="text-blue-600 hover:text-blue-700"
+                          title="Chi tiết"
+                        >
+                          Chi tiết
+                        </Link>
+
+                        <button
+                          onClick={() => navigate(`/employer/jobs/new?editId=${j.id}`)}
+                          className="text-blue-600 hover:text-blue-700"
+                          title="Chỉnh sửa"
+                        >
+                          Chỉnh sửa
+                        </button>
+
+                        <button
+                          className="text-red-600 hover:text-red-700 disabled:opacity-50"
+                          onClick={() => handleDelete(j)}
+                          disabled={workingId === j.id}
+                          title="Xóa"
+                        >
+                          {workingId === j.id ? 'Đang xóa…' : 'Xóa'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Phân trang (mũi tên + số trang) */}
+        <div className="px-8 py-2 border-t flex items-center justify-end text-sm text-gray-600">
+          <div className="flex items-center gap-2">
+            <button
+              className="h-8 w-8 grid place-items-center rounded border bg-white hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => toPage(page - 1)}
+              disabled={page <= 1 || loading}
+              title="Trước"
+            >
+              <FiChevronLeft />
+            </button>
+            <div className="h-8 min-w-[32px] grid place-items-center rounded border bg-white text-gray-800">
+              {page}
+            </div>
+            <button
+              className="h-8 w-8 grid place-items-center rounded border bg-white hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => toPage(page + 1)}
+              disabled={page >= (pagination.totalPages || 1) || loading}
+              title="Sau"
+            >
+              <FiChevronRight />
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Nút tạo tin nổi */}
+      <Link
+        to="/employer/jobs/new"
+        className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-[#6D28D9] hover:bg-[#5B21B6] text-white flex items-center justify-center shadow-lg"
+        title="Tạo tin mới"
+      >
+        <FiPlus />
+      </Link>
     </div>
   );
 }

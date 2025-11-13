@@ -11,42 +11,60 @@ const { sequelize, initDatabase } = require('./src/config/database');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Bảo mật
-app.use(helmet());
-const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'http://localhost:5175')
+/* ============ Security (helmet + CORS) ============ */
+// Helmet: cho phép nhúng tài nguyên khác origin (ảnh /uploads),
+// tắt COEP để không chặn nhúng khi không cần.
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+}));
+
+const defaultClientUrls = 'http://localhost:5175,http://127.0.0.1:5175';
+const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || defaultClientUrls)
   .split(',')
-  .map(o => o.trim());
+  .map(o => o.trim())
+  .filter(Boolean);
+
 const corsOptions = {
   origin: (origin, callback) => {
+    // Dev: cho phép tất cả
     if (process.env.NODE_ENV === 'development') return callback(null, true);
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Không được phép bởi CORS'));
   },
-  credentials: true
+  credentials: true,
 };
 app.use(cors(corsOptions));
 
-// Parsers
+/* ============ Parsers, compression, log ============ */
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined'));
 
-// Serve files tĩnh cho uploads
+/* ============ Serve static uploads ============ */
 const uploadRoot = process.env.UPLOAD_PATH
-  ? path.isAbsolute(process.env.UPLOAD_PATH)
-    ? process.env.UPLOAD_PATH
-    : path.resolve(process.cwd(), process.env.UPLOAD_PATH)
+  ? (path.isAbsolute(process.env.UPLOAD_PATH) ? process.env.UPLOAD_PATH : path.resolve(process.cwd(), process.env.UPLOAD_PATH))
   : path.resolve(process.cwd(), 'uploads');
-app.use('/uploads', express.static(uploadRoot));
 
-// Healthcheck
-app.get('/health', (req, res) => {
+// Gắn header CORP cho /uploads để ảnh load cross-origin
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  // Cho phép FE dev truy cập ảnh; production có thể giới hạn theo allowedOrigins[0]
+  if (process.env.NODE_ENV === 'development') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (allowedOrigins.length) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0]);
+  }
+  next();
+}, express.static(uploadRoot));
+
+/* ============ Health & DB test ============ */
+app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
-// Test DB
 app.get('/test-db', async (_req, res) => {
   try {
     await sequelize.authenticate();
@@ -56,7 +74,7 @@ app.get('/test-db', async (_req, res) => {
   }
 });
 
-// Routes
+/* ============ Routes ============ */
 app.use('/api/auth', require('./src/routes/authRoutes'));
 app.use('/api/jobs', require('./src/routes/jobRoutes'));
 app.use('/api/dashboard', require('./src/routes/dashboardRoutes'));
@@ -70,7 +88,7 @@ app.use('/api/users', require('./src/routes/userRoutes'));
 app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 
-// Error handler
+/* ============ Error handler & 404 ============ */
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
   res.status(500).json({
@@ -79,12 +97,11 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// 404
 app.use('*', (_req, res) => {
   res.status(404).json({ message: 'Đường dẫn không tồn tại' });
 });
 
-// Start
+/* ============ Start ============ */
 const startServer = async () => {
   try {
     await initDatabase();

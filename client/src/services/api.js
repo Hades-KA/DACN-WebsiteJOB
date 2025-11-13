@@ -137,6 +137,15 @@ export const companyService = {
   // NEW: truyền params, ví dụ { active: 'all' }
   getCompanyJobs: (id, params = {}) => api.get(`/companies/${id}/jobs`, { params }),
   getCompanyStats: (id) => api.get(`/companies/${id}/stats`),
+
+  // NEW: upload logo (multipart/form-data)
+  uploadLogo: (id, file) => {
+    const form = new FormData();
+    form.append('logo', file);
+    return api.post(`/companies/${id}/logo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // Application

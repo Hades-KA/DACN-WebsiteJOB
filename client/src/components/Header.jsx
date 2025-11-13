@@ -1,15 +1,35 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, Briefcase, FileText, BarChart3 } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import {
+  Menu,
+  X,
+  User,
+  LogOut,
+  Briefcase,
+  Search as SearchIcon,
+  Building,
+  BookOpen,
+  FileText,
+} from 'lucide-react';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const navigate = useNavigate();
-  
+  const location = useLocation();
+
   const token = localStorage.getItem('token');
+
+  // Parse user an toàn
+  let user = {};
   const userString = localStorage.getItem('user');
-  const user = userString && userString !== 'undefined' && userString !== 'null' ? JSON.parse(userString) : {};
+  if (userString && userString !== 'undefined' && userString !== 'null') {
+    try {
+      user = JSON.parse(userString);
+    } catch {
+      user = {};
+    }
+  }
   const userType = user?.userType; // 'candidate' | 'employer' | 'admin'
 
   const handleLogout = () => {
@@ -18,6 +38,14 @@ const Header = () => {
     navigate('/');
     setIsUserMenuOpen(false);
   };
+
+  // 4 mục điều hướng
+  const navItems = [
+    { to: '/jobs', label: 'Ngành nghề/Địa điểm', icon: SearchIcon },
+    { to: '/companies', label: 'Công ty', icon: Building },
+    { to: '/guide', label: 'Cẩm nang việc làm', icon: BookOpen },
+    { to: '/cv-templates', label: 'Mẫu CV xin việc', icon: FileText },
+  ];
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-gray-100">
@@ -32,45 +60,21 @@ const Header = () => {
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-6">
-            {token && (
-              <>
-                <Link 
-                  to="/" 
-                  className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
+          <nav className="hidden md:flex items-center space-x-2">
+            {navItems.map(({ to, label, icon: Icon }) => {
+              const active = location.pathname.startsWith(to);
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className={`inline-flex items-center gap-2 h-9 px-3 rounded-full text-sm transition-colors
+                    ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'}`}
                 >
-                  Trang chủ
+                  <Icon className="w-4 h-4" />
+                  <span>{label}</span>
                 </Link>
-                {/* Removed top-nav Admin link to avoid duplication; Admin link remains in dropdown and mobile menu */}
-                {userType === 'candidate' && (
-                  <Link 
-                    to="/cv-list" 
-                    className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                  >
-                    <FileText className="w-4 h-4 mr-1" />
-                    Danh sách CV
-                  </Link>
-                )}
-                {userType === 'employer' && (
-                  <>
-                    <Link 
-                      to="/post-job" 
-                      className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                    >
-                      <Briefcase className="w-4 h-4 mr-1" />
-                      Đăng tin
-                    </Link>
-                    <Link 
-                      to="/dashboard" 
-                      className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex items-center"
-                    >
-                      <BarChart3 className="w-4 h-4 mr-1" />
-                      Dashboard
-                    </Link>
-                  </>
-                )}
-              </>
-            )}
+              );
+            })}
           </nav>
 
           {/* User Menu / Auth Buttons */}
@@ -80,6 +84,8 @@ const Header = () => {
                 <button
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                   className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+                  aria-haspopup="menu"
+                  aria-expanded={isUserMenuOpen}
                 >
                   <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                     <User className="w-4 h-4" />
@@ -94,14 +100,14 @@ const Header = () => {
                       <p className="text-xs text-gray-500">{user.email}</p>
                     </div>
                     <Link
-                      to={userType === 'candidate' ? '/profile' : userType === 'employer' ? '/dashboard' : '/admin'}
+                      to="/profile"
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       onClick={() => setIsUserMenuOpen(false)}
                     >
                       Quản lý hồ sơ
                     </Link>
                     <Link
-                      to="/profile"
+                      to="/account"
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       onClick={() => setIsUserMenuOpen(false)}
                     >
@@ -138,6 +144,7 @@ const Header = () => {
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="md:hidden p-2 text-gray-600 hover:text-blue-600"
+              aria-label="Mở menu điều hướng"
             >
               {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -148,17 +155,36 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden border-t border-gray-200 py-4">
             <nav className="flex flex-col space-y-2">
-              {token && (
+              {/* 4 mục điều hướng */}
+              {navItems.map(({ to, label, icon: Icon }) => {
+                const active = location.pathname.startsWith(to);
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={`px-4 py-2 rounded-lg inline-flex items-center gap-2
+                      ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'}`}
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
+
+              <div className="my-2 border-t border-gray-100" />
+
+              {token ? (
                 <>
                   <Link
-                    to={userType === 'candidate' ? '/profile' : userType === 'employer' ? '/dashboard' : '/admin'}
+                    to="/profile"
                     className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Quản lý hồ sơ
                   </Link>
                   <Link
-                    to="/profile"
+                    to="/account"
                     className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
                     onClick={() => setIsMenuOpen(false)}
                   >
@@ -171,8 +197,7 @@ const Header = () => {
                     Đăng xuất
                   </button>
                 </>
-              )}
-              {!token && (
+              ) : (
                 <>
                   <Link
                     to="/login"
@@ -190,7 +215,7 @@ const Header = () => {
                   </Link>
                 </>
               )}
-    </nav>
+            </nav>
           </div>
         )}
       </div>

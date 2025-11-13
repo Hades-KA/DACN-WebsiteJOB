@@ -10,6 +10,9 @@ import JobDetail from './pages/JobDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 
+// Trang Ngành nghề/Địa điểm (list)
+import Jobs from './pages/Jobs';
+
 // ===== Ứng viên (Candidate) =====
 import ProfileLayout from './pages/profile/ProfileLayout';
 import ProfileOverview from './pages/profile/Overview';
@@ -23,7 +26,8 @@ import EmployerDashboard from './pages/employer/Dashboard';
 import MyJobs from './pages/employer/MyJobs';
 import Applicants from './pages/employer/Applicants';
 import JobPost from './pages/JobPost';
-import CompanyProfile from './pages/employer/CompanyProfile'; 
+import CompanyProfile from './pages/employer/CompanyProfile';
+import EmployerCVs from './pages/employer/CVManagement'; // Quản lý CV
 
 // ===== Quản trị viên (Admin) =====
 import AdminLayout from './pages/admin/AdminLayout';
@@ -42,16 +46,21 @@ const ProtectedRoute = ({ children, roles }) => {
   const token = localStorage.getItem('token');
   if (!token) return <Navigate to="/login" replace />;
 
-  if (roles && roles.length) {
-    const userRaw = localStorage.getItem('user');
-    const user = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
-    const userType = user?.userType;
+  let userType;
+  try {
+    const raw = localStorage.getItem('user');
+    userType = raw ? JSON.parse(raw)?.userType : undefined;
+  } catch {
+    userType = undefined;
+  }
 
-    // nếu không đúng quyền thì quay về trang chủ
+  if (roles && roles.length) {
+    // admin luôn có quyền
     if (!userType || (!roles.includes(userType) && userType !== 'admin')) {
       return <Navigate to="/" replace />;
     }
   }
+
   return children;
 };
 
@@ -65,9 +74,11 @@ const PublicRoute = ({ children }) => {
 // ===== Trang trung gian tự điều hướng theo loại tài khoản =====
 function Landing() {
   const token = localStorage.getItem('token');
-  const raw = localStorage.getItem('user');
   let userType = null;
-  try { userType = raw ? JSON.parse(raw).userType : null; } catch {}
+  try {
+    const raw = localStorage.getItem('user');
+    userType = raw ? JSON.parse(raw).userType : null;
+  } catch {}
 
   if (token && userType === 'employer') return <Navigate to="/employer/dashboard" replace />;
   if (token && userType === 'admin') return <Navigate to="/admin" replace />;
@@ -78,7 +89,7 @@ function Landing() {
 function Shell() {
   const location = useLocation();
 
-  // ẩn Header/Footer cho admin, employer, login/register
+  // Ẩn Header/Footer cho admin, employer, login/register
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isEmployerRoute = location.pathname.startsWith('/employer');
   const isAuthPage = location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
@@ -87,11 +98,19 @@ function Shell() {
   return (
     <div className="min-h-screen flex flex-col">
       {!hideHeaderFooter && <Header />}
-      <main className={`flex-1 ${!hideHeaderFooter ? 'pt-16' : ''}`}>
+
+      <main className="flex-1">
         <Routes>
           {/* ===== Public ===== */}
           <Route path="/" element={<Landing />} />
+
+          {/* Trang Ngành nghề/Địa điểm (list) */}
+          <Route path="/jobs" element={<Jobs />} />
+
+          {/* Chi tiết job (hỗ trợ cả 2 path) */}
+          <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/job/:id" element={<JobDetail />} />
+
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
@@ -100,8 +119,14 @@ function Shell() {
             <Route index element={<ProfileOverview />} />
             <Route path="personal" element={<ProfilePersonal />} />
           </Route>
-          <Route path="/my-applications" element={<ProtectedRoute roles={['candidate']}><MyApplications /></ProtectedRoute>} />
-          <Route path="/saved-jobs" element={<ProtectedRoute roles={['candidate']}><SavedJobs /></ProtectedRoute>} />
+          <Route
+            path="/my-applications"
+            element={<ProtectedRoute roles={['candidate']}><MyApplications /></ProtectedRoute>}
+          />
+          <Route
+            path="/saved-jobs"
+            element={<ProtectedRoute roles={['candidate']}><SavedJobs /></ProtectedRoute>}
+          />
 
           {/* ===== Employer ===== */}
           <Route path="/employer" element={<ProtectedRoute roles={['employer']}><EmployerLayout /></ProtectedRoute>}>
@@ -110,9 +135,9 @@ function Shell() {
             <Route path="jobs" element={<MyJobs />} />
             <Route path="jobs/new" element={<JobPost />} />
             <Route path="jobs/:jobId/applicants" element={<Applicants />} />
-            <Route path="company" element={<CompanyProfile />} /> // ✅ Dùng trang thật thay vì placeholder
+            <Route path="company" element={<CompanyProfile />} />
             <Route path="recruitment" element={<div className="p-4">Tuyển dụng (đang phát triển)</div>} />
-            <Route path="cvs" element={<div className="p-4">Quản lý CV (đang phát triển)</div>} />
+            <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<div className="p-4">Quản lý ứng viên (đang phát triển)</div>} />
             <Route path="reports" element={<div className="p-4">Báo cáo & Thống kê (đang phát triển)</div>} />
           </Route>
@@ -130,6 +155,7 @@ function Shell() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
       {!hideHeaderFooter && <Footer />}
     </div>
   );

@@ -1,9 +1,9 @@
 /* ===============================
-   HeThongTuyenDung – FULL DDL + SAFE PATCH
+   HeThongTuyenDung – FULL DDL + SAFE PATCH (idempotent)
    =============================== */
 
 ---------------------------------
--- 1) Tạo DB nếu chưa có
+-- 0. Tạo Database nếu chưa có
 ---------------------------------
 IF DB_ID(N'HeThongTuyenDung') IS NULL
 BEGIN
@@ -14,9 +14,7 @@ GO
 USE [HeThongTuyenDung];
 GO
 
----------------------------------
--- 2) USERS (có hồ sơ ứng viên + hồ sơ công ty)
----------------------------------
+/* ===================== USERS ===================== */
 IF OBJECT_ID(N'dbo.users', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[users] (
@@ -48,7 +46,7 @@ BEGIN
         [cvName] NVARCHAR(255) NULL,
         [cvSize] INT NULL,
 
-        -- Hồ sơ công ty (employer)
+        -- Hồ sơ công ty
         [companyWebsite]   NVARCHAR(255) NULL,
         [companySize]      NVARCHAR(50)  NULL, 
         [industry]         NVARCHAR(100) NULL,
@@ -65,56 +63,47 @@ BEGIN
 END
 ELSE
 BEGIN
-    -- SAFE PATCH: thêm các cột hồ sơ công ty nếu thiếu
-    IF COL_LENGTH('dbo.users','companyWebsite')   IS NULL ALTER TABLE dbo.users ADD companyWebsite   NVARCHAR(255) NULL;
-    IF COL_LENGTH('dbo.users','companySize')      IS NULL ALTER TABLE dbo.users ADD companySize      NVARCHAR(50)  NULL;
-    IF COL_LENGTH('dbo.users','industry')         IS NULL ALTER TABLE dbo.users ADD industry         NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.users','taxCode')          IS NULL ALTER TABLE dbo.users ADD taxCode          NVARCHAR(50)  NULL;
-    IF COL_LENGTH('dbo.users','businessLicense')  IS NULL ALTER TABLE dbo.users ADD businessLicense  NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.users','companyCity')      IS NULL ALTER TABLE dbo.users ADD companyCity      NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.users','companyAddress')   IS NULL ALTER TABLE dbo.users ADD companyAddress   NVARCHAR(255) NULL;
-    IF COL_LENGTH('dbo.users','logoUrl')          IS NULL ALTER TABLE dbo.users ADD logoUrl          NVARCHAR(500) NULL;
-    IF COL_LENGTH('dbo.users','companyAbout')     IS NULL ALTER TABLE dbo.users ADD companyAbout     NVARCHAR(MAX) NULL;
+    -- SAFE PATCH: thêm cột hồ sơ công ty nếu thiếu
+    IF COL_LENGTH('dbo.users','companyWebsite')   IS NULL ALTER TABLE dbo.users ADD companyWebsite NVARCHAR(255);
+    IF COL_LENGTH('dbo.users','companySize')      IS NULL ALTER TABLE dbo.users ADD companySize NVARCHAR(50);
+    IF COL_LENGTH('dbo.users','industry')         IS NULL ALTER TABLE dbo.users ADD industry NVARCHAR(100);
+    IF COL_LENGTH('dbo.users','taxCode')          IS NULL ALTER TABLE dbo.users ADD taxCode NVARCHAR(50);
+    IF COL_LENGTH('dbo.users','businessLicense')  IS NULL ALTER TABLE dbo.users ADD businessLicense NVARCHAR(100);
+    IF COL_LENGTH('dbo.users','companyCity')      IS NULL ALTER TABLE dbo.users ADD companyCity NVARCHAR(100);
+    IF COL_LENGTH('dbo.users','companyAddress')   IS NULL ALTER TABLE dbo.users ADD companyAddress NVARCHAR(255);
+    IF COL_LENGTH('dbo.users','logoUrl')          IS NULL ALTER TABLE dbo.users ADD logoUrl NVARCHAR(500);
+    IF COL_LENGTH('dbo.users','companyAbout')     IS NULL ALTER TABLE dbo.users ADD companyAbout NVARCHAR(MAX);
 END
 GO
 
--- Index cho USERS (tạo nếu chưa có)
+-- Index cho users
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Phone' AND object_id = OBJECT_ID('dbo.users'))
     CREATE INDEX [IDX_Phone] ON [dbo].[users] ([phone]);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_UserType' AND object_id = OBJECT_ID('dbo.users'))
     CREATE INDEX [IDX_UserType] ON [dbo].[users] ([userType]);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_LastLogin' AND object_id = OBJECT_ID('dbo.users'))
     CREATE INDEX [IDX_LastLogin] ON [dbo].[users] ([lastLogin]);
-
--- Index hỗ trợ search employer theo tên công ty
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Users_Company_Employer' AND object_id = OBJECT_ID('dbo.users'))
-BEGIN
-    CREATE INDEX [IDX_Users_Company_Employer]
-    ON [dbo].[users] ([company])
-    WHERE [userType] = 'employer';
-END
-
--- Trigger cập nhật updatedAt
-IF OBJECT_ID(N'dbo.trg_UpdateUpdatedAt', N'TR') IS NULL
-    EXEC('
-    CREATE TRIGGER [dbo].[trg_UpdateUpdatedAt]
-    ON [dbo].[users]
-    AFTER UPDATE
-    AS
-    BEGIN
-        SET NOCOUNT ON;
-        UPDATE u
-        SET [updatedAt] = GETDATE()
-        FROM [dbo].[users] u
-        INNER JOIN inserted i ON u.[id] = i.[id];
-    END
-');
-
+    CREATE INDEX [IDX_Users_Company_Employer] ON [dbo].[users] ([company]) WHERE [userType] = 'employer';
 GO
 
----------------------------------
--- 3) JOBS
----------------------------------
+-- Trigger cập nhật updatedAt (idempotent)
+IF OBJECT_ID(N'dbo.trg_UpdateUpdatedAt', N'TR') IS NULL
+EXEC('
+CREATE TRIGGER [dbo].[trg_UpdateUpdatedAt]
+ON [dbo].[users]
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE u SET [updatedAt] = GETDATE()
+    FROM [dbo].[users] u
+    INNER JOIN inserted i ON u.[id] = i.[id];
+END
+');
+GO
+
+/* ===================== JOBS ===================== */
 IF OBJECT_ID(N'dbo.jobs', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[jobs] (
@@ -143,7 +132,21 @@ BEGIN
 END
 GO
 
--- Index cho JOBS
+-- SAFE PATCH: thêm cột cho jobs nếu thiếu
+IF COL_LENGTH('dbo.jobs','level') IS NULL           ALTER TABLE dbo.jobs ADD [level] NVARCHAR(50);
+IF COL_LENGTH('dbo.jobs','education') IS NULL       ALTER TABLE dbo.jobs ADD [education] NVARCHAR(50);
+IF COL_LENGTH('dbo.jobs','experienceBand') IS NULL  ALTER TABLE dbo.jobs ADD [experienceBand] NVARCHAR(50);
+IF COL_LENGTH('dbo.jobs','salaryBand') IS NULL      ALTER TABLE dbo.jobs ADD [salaryBand] NVARCHAR(50);
+IF COL_LENGTH('dbo.jobs','workMode') IS NULL        ALTER TABLE dbo.jobs ADD [workMode] NVARCHAR(20);
+IF COL_LENGTH('dbo.jobs','headcount') IS NULL       ALTER TABLE dbo.jobs ADD [headcount] INT;
+IF COL_LENGTH('dbo.jobs','contactName') IS NULL     ALTER TABLE dbo.jobs ADD [contactName] NVARCHAR(255);
+IF COL_LENGTH('dbo.jobs','contactEmail') IS NULL    ALTER TABLE dbo.jobs ADD [contactEmail] NVARCHAR(255);
+IF COL_LENGTH('dbo.jobs','contactPhone') IS NULL    ALTER TABLE dbo.jobs ADD [contactPhone] NVARCHAR(50);
+IF COL_LENGTH('dbo.jobs','contactAddress') IS NULL  ALTER TABLE dbo.jobs ADD [contactAddress] NVARCHAR(255);
+IF COL_LENGTH('dbo.jobs','jobCode') IS NULL         ALTER TABLE dbo.jobs ADD [jobCode] NVARCHAR(50);
+GO
+
+-- Index cho jobs (filter/sort)
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Category' AND object_id = OBJECT_ID('dbo.jobs'))
     CREATE INDEX [IDX_Category] ON [dbo].[jobs] ([category]);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Location' AND object_id = OBJECT_ID('dbo.jobs'))
@@ -154,14 +157,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_IsActive' AND object_
     CREATE INDEX [IDX_IsActive] ON [dbo].[jobs] ([isActive]);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_EmployerId' AND object_id = OBJECT_ID('dbo.jobs'))
     CREATE INDEX [IDX_EmployerId] ON [dbo].[jobs] ([employerId]);
--- Optional (nên cân nhắc dữ liệu hiện tại trước khi bật vì UNIQUE):
--- IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_JobTitle_PerEmployer' AND object_id = OBJECT_ID('dbo.jobs'))
---     CREATE UNIQUE INDEX [UQ_JobTitle_PerEmployer] ON [dbo].[jobs] ([employerId],[title]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Jobs_Level' AND object_id = OBJECT_ID('dbo.jobs'))
+    CREATE INDEX [IDX_Jobs_Level] ON [dbo].[jobs]([level]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Jobs_Education' AND object_id = OBJECT_ID('dbo.jobs'))
+    CREATE INDEX [IDX_Jobs_Education] ON [dbo].[jobs]([education]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Jobs_ExpBand' AND object_id = OBJECT_ID('dbo.jobs'))
+    CREATE INDEX [IDX_Jobs_ExpBand] ON [dbo].[jobs]([experienceBand]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Jobs_SalaryBand' AND object_id = OBJECT_ID('dbo.jobs'))
+    CREATE INDEX [IDX_Jobs_SalaryBand] ON [dbo].[jobs]([salaryBand]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Jobs_CreatedAt' AND object_id = OBJECT_ID('dbo.jobs'))
+    CREATE INDEX [IDX_Jobs_CreatedAt] ON [dbo].[jobs]([createdAt]);
 GO
 
----------------------------------
--- 4) CVS
----------------------------------
+/* ===================== CVS ===================== */
 IF OBJECT_ID(N'dbo.cvs', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[cvs] (
@@ -194,9 +202,7 @@ BEGIN
 END
 GO
 
----------------------------------
--- 5) APPLICATIONS
----------------------------------
+/* ===================== APPLICATIONS ===================== */
 IF OBJECT_ID(N'dbo.applications', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[applications] (
@@ -214,18 +220,15 @@ BEGIN
         [cvId] UNIQUEIDENTIFIER NULL,
         [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
         [updatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
-        CONSTRAINT [FK_Apps_Job] FOREIGN KEY ([jobId]) REFERENCES [dbo].[jobs]([id]) ON DELETE NO ACTION,
-        CONSTRAINT [FK_Apps_Candidate] FOREIGN KEY ([candidateId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION,
-        CONSTRAINT [FK_Apps_CV] FOREIGN KEY ([cvId]) REFERENCES [dbo].[cvs]([id]) ON DELETE SET NULL
+        CONSTRAINT [FK_Apps_Job]       FOREIGN KEY ([jobId])      REFERENCES [dbo].[jobs]([id]),
+        CONSTRAINT [FK_Apps_Candidate] FOREIGN KEY ([candidateId]) REFERENCES [dbo].[users]([id]),
+        CONSTRAINT [FK_Apps_CV]        FOREIGN KEY ([cvId])       REFERENCES [dbo].[cvs]([id]) ON DELETE SET NULL
     );
-    -- Chống nộp đơn trùng (1 ứng viên / 1 job)
     CREATE UNIQUE INDEX [UQ_Application_Job_Candidate] ON [dbo].[applications]([jobId],[candidateId]);
 END
 GO
 
----------------------------------
--- 6) saved_jobs
----------------------------------
+/* ===================== saved_jobs ===================== */
 IF OBJECT_ID(N'dbo.saved_jobs', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[saved_jobs] (
@@ -234,15 +237,13 @@ BEGIN
         [jobId] UNIQUEIDENTIFIER NOT NULL,
         [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
         CONSTRAINT [FK_SavedJobs_User] FOREIGN KEY ([userId]) REFERENCES [dbo].[users]([id]) ON DELETE CASCADE,
-        CONSTRAINT [FK_SavedJobs_Job] FOREIGN KEY ([jobId]) REFERENCES [dbo].[jobs]([id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_SavedJobs_Job]  FOREIGN KEY ([jobId])  REFERENCES [dbo].[jobs]([id])  ON DELETE CASCADE,
         CONSTRAINT [UQ_SavedJobs] UNIQUE ([userId],[jobId])
     );
 END
 GO
 
----------------------------------
--- 7) invitations
----------------------------------
+/* ===================== invitations ===================== */
 IF OBJECT_ID(N'dbo.invitations', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[invitations] (
@@ -257,14 +258,12 @@ BEGIN
         [updatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
         CONSTRAINT [FK_Inv_Employer] FOREIGN KEY ([employerId]) REFERENCES [dbo].[users]([id]),
         CONSTRAINT [FK_Inv_Candidate] FOREIGN KEY ([candidateId]) REFERENCES [dbo].[users]([id]),
-        CONSTRAINT [FK_Inv_Job] FOREIGN KEY ([jobId]) REFERENCES [dbo].[jobs]([id])
+        CONSTRAINT [FK_Inv_Job]       FOREIGN KEY ([jobId])       REFERENCES [dbo].[jobs]([id])
     );
 END
 GO
 
----------------------------------
--- 8) notifications
----------------------------------
+/* ===================== notifications ===================== */
 IF OBJECT_ID(N'dbo.notifications', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[notifications] (
@@ -279,9 +278,7 @@ BEGIN
 END
 GO
 
----------------------------------
--- 9) reviews
----------------------------------
+/* ===================== reviews ===================== */
 IF OBJECT_ID(N'dbo.reviews', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[reviews] (
@@ -293,15 +290,13 @@ BEGIN
         [content] NVARCHAR(MAX) NULL,
         [status] NVARCHAR(20) NOT NULL DEFAULT 'pending' CHECK ([status] IN ('pending','approved','rejected')),
         [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
-        CONSTRAINT [FK_Rev_Company] FOREIGN KEY ([companyUserId]) REFERENCES [dbo].[users]([id]),
-        CONSTRAINT [FK_Rev_Reviewer] FOREIGN KEY ([reviewerId]) REFERENCES [dbo].[users]([id])
+        CONSTRAINT [FK_Rev_Company]  FOREIGN KEY ([companyUserId]) REFERENCES [dbo].[users]([id]),
+        CONSTRAINT [FK_Rev_Reviewer] FOREIGN KEY ([reviewerId])   REFERENCES [dbo].[users]([id])
     );
 END
 GO
 
----------------------------------
--- 10) oauth_accounts
----------------------------------
+/* ===================== oauth_accounts ===================== */
 IF OBJECT_ID(N'dbo.oauth_accounts', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[oauth_accounts] (
@@ -317,39 +312,25 @@ BEGIN
 END
 GO
 
----------------------------------
--- 11) Unique filtered index: chỉ 1 admin
----------------------------------
-IF NOT EXISTS (
-    SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_SingleAdmin' AND object_id = OBJECT_ID('[dbo].[users]')
-)
+/* ===================== Admin duy nhất ===================== */
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_SingleAdmin' AND object_id = OBJECT_ID('[dbo].[users]'))
 BEGIN
-    -- Chỉ cho phép tối đa 1 dòng có userType='admin'
     CREATE UNIQUE INDEX [UQ_Users_SingleAdmin]
     ON [dbo].[users] ([userType])
     WHERE [userType] = 'admin';
 END
 GO
 
----------------------------------
--- 12) Gán ADMIN mặc định
----------------------------------
+/* ===================== Admin mặc định ===================== */
 DECLARE @NewAdminEmail NVARCHAR(255) = N'admin@jobhire.local';
 BEGIN TRY
     BEGIN TRAN;
-
-    -- Chuyển mọi admin khác (nếu có) về candidate (để thỏa unique 1 admin)
-    UPDATE [dbo].[users]
-    SET [userType] = 'candidate'
-    WHERE [userType] = 'admin' AND [email] <> @NewAdminEmail;
-
-    -- Đảm bảo có đúng 1 admin
+    UPDATE [dbo].[users] SET [userType] = 'candidate' WHERE [userType] = 'admin' AND [email] <> @NewAdminEmail;
     IF EXISTS (SELECT 1 FROM [dbo].[users] WHERE [email] = @NewAdminEmail)
         UPDATE [dbo].[users] SET [userType] = 'admin' WHERE [email] = @NewAdminEmail;
     ELSE
         INSERT INTO [dbo].[users] ([name],[email],[password],[userType],[isVerified])
         VALUES (N'System Admin', @NewAdminEmail, N'Admin@123', 'admin', 1);
-
     COMMIT TRAN;
 END TRY
 BEGIN CATCH
@@ -358,19 +339,66 @@ BEGIN CATCH
 END CATCH;
 GO
 
----------------------------------
--- 13) Kiểm tra nhanh
----------------------------------
-SELECT [id],[email],[userType] FROM [dbo].[users] WHERE [userType] = 'admin';
+/* ============ SAFE PATCH BỔ SUNG CHO HIỆU NĂNG & DỌN TRIGGER CŨ =========== */
+BEGIN TRY
+  BEGIN TRAN;
+
+  -- Index thêm cho apps/invitations/saved_jobs (nếu thiếu)
+  IF OBJECT_ID(N'dbo.applications', N'U') IS NOT NULL
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Apps_JobId'       AND object_id=OBJECT_ID('dbo.applications'))
+      CREATE INDEX IDX_Apps_JobId       ON dbo.applications(jobId);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Apps_CandidateId' AND object_id=OBJECT_ID('dbo.applications'))
+      CREATE INDEX IDX_Apps_CandidateId ON dbo.applications(candidateId);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Apps_CreatedAt'   AND object_id=OBJECT_ID('dbo.applications'))
+      CREATE INDEX IDX_Apps_CreatedAt   ON dbo.applications(createdAt);
+  END
+
+  IF OBJECT_ID(N'dbo.invitations', N'U') IS NOT NULL
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Inv_JobId'       AND object_id=OBJECT_ID('dbo.invitations'))
+      CREATE INDEX IDX_Inv_JobId       ON dbo.invitations(jobId);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Inv_EmployerId'  AND object_id=OBJECT_ID('dbo.invitations'))
+      CREATE INDEX IDX_Inv_EmployerId  ON dbo.invitations(employerId);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Inv_CandidateId' AND object_id=OBJECT_ID('dbo.invitations'))
+      CREATE INDEX IDX_Inv_CandidateId ON dbo.invitations(candidateId);
+  END
+
+  IF OBJECT_ID(N'dbo.saved_jobs', N'U') IS NOT NULL
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Saved_JobId' AND object_id=OBJECT_ID('dbo.saved_jobs'))
+      CREATE INDEX IDX_Saved_JobId ON dbo.saved_jobs(jobId);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IDX_Saved_UserId' AND object_id=OBJECT_ID('dbo.saved_jobs'))
+      CREATE INDEX IDX_Saved_UserId ON dbo.saved_jobs(userId);
+  END
+
+  -- Dọn trigger xóa jobs nếu lỡ tạo trước đó (để backend xử lý)
+  IF OBJECT_ID(N'dbo.trg_Job_Delete', N'TR') IS NOT NULL
+    DROP TRIGGER dbo.trg_Job_Delete;
+  IF OBJECT_ID(N'dbo.trg_AfterDeleteJob', N'TR') IS NOT NULL
+    DROP TRIGGER dbo.trg_AfterDeleteJob;
+
+  COMMIT TRAN;
+END TRY
+BEGIN CATCH
+  IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+  THROW;
+END CATCH;
 GO
 
--- Verify cột hồ sơ công ty đã có
-SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'users'
-  AND COLUMN_NAME IN (
-    'companyWebsite','companySize','industry','taxCode','businessLicense',
-    'companyCity','companyAddress','logoUrl','companyAbout'
-  )
-ORDER BY COLUMN_NAME;
+/* ===================== Kiểm tra nhanh ===================== */
+PRINT '=== FK đang tham chiếu tới jobs ===';
+SELECT fk.name AS fk_name,
+       OBJECT_NAME(fk.parent_object_id) AS child_table,
+       fk.delete_referential_action_desc AS on_delete
+FROM sys.foreign_keys fk
+WHERE fk.referenced_object_id = OBJECT_ID('dbo.jobs');
+
+PRINT '=== Trigger trên bảng jobs (kỳ vọng: none) ===';
+SELECT name, type_desc, OBJECT_NAME(parent_id) AS table_name
+FROM sys.triggers
+WHERE parent_id = OBJECT_ID('dbo.jobs');
+
+PRINT '=== Admin hiện có ===';
+SELECT [id],[email],[userType] FROM [dbo].[users] WHERE [userType] = 'admin';
 GO

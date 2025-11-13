@@ -1,10 +1,32 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Rocket, Flame } from 'lucide-react';
 import { jobService } from '../services/api';
 
-function Home() {
+const typeViMap = {
+  'full-time': 'Toàn thời gian',
+  'part-time': 'Bán thời gian',
+  contract: 'Thời vụ',
+  intern: 'Thực tập',
+};
+
+function normalizeJob(j, idx = 0) {
+  return {
+    id: j.id || j._id || `j-${idx}`,
+    title: j.title || j.name || 'Vị trí chưa đặt tên',
+    company: j.company || j.employer?.company || j.employer?.name || 'Công ty ẩn danh',
+    companyLogo: j.companyLogo || j.employer?.logoUrl || '',
+    location: j.location || 'Không rõ',
+    salary: j.salary || j.salaryBand || 'Thoả thuận',
+    type: j.type || 'full-time',
+    createdAt: j.createdAt || j.publishedAt || '',
+  };
+}
+
+export default function Home() {
   // === STATE & DỮ LIỆU ===
+  const navigate = useNavigate();
+
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState([]);
@@ -23,9 +45,7 @@ function Home() {
 
   // Tự động chuyển slide trending
   useEffect(() => {
-    const id = setInterval(() => {
-      setSlide((s) => (s + 1) % pages.length);
-    }, 3000);
+    const id = setInterval(() => setSlide((s) => (s + 1) % pages.length), 3000);
     return () => clearInterval(id);
   }, [pages.length]);
 
@@ -81,25 +101,41 @@ function Home() {
     return () => catTimer.current && clearInterval(catTimer.current);
   }, [catPages.length]);
 
-  // Featured Jobs
+  // Featured Jobs (server)
   const [featSlide, setFeatSlide] = useState(0);
-  const sortedJobs = Array.isArray(jobs)
-    ? [...jobs].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-    : [];
-  const featuredJobs = sortedJobs.slice(0, 6).map((j, idx) => ({
-    id: j._id || `j-${idx}`,
-    title: j.title || j.name || 'Vị trí chưa đặt tên',
-    company: j.company?.name || j.company?.companyName || j.company || 'Công ty ẩn danh',
-    companyLogo: j.company?.logo || j.companyLogo || '',
-    location: j.location || 'Không rõ',
-    salary: j.salary || 'Thoả thuận',
-    type: j.type || 'Toàn thời gian',
-  }));
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        setLoading(true);
+        // Lấy job nổi bật trước
+        const r1 = await jobService.getAllJobs({ featured: true, limit: 6, sort: 'newest' });
+        const list1 = Array.isArray(r1?.data?.data) ? r1.data.data : (Array.isArray(r1?.data) ? r1.data : []);
+        if (active && list1.length > 0) {
+          setJobs(list1.map((j, i) => normalizeJob(j, i)));
+          return;
+        }
+        // Fallback: lấy newest nếu chưa có featured
+        const r2 = await jobService.getAllJobs({ limit: 6, sort: 'newest' });
+        const list2 = Array.isArray(r2?.data?.data) ? r2.data.data : (Array.isArray(r2?.data) ? r2.data : []);
+        if (active) setJobs(list2.map((j, i) => normalizeJob(j, i)));
+      } catch {
+        if (active) setJobs([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // Tạo pages cho slider nổi bật (3 card mỗi trang)
+  const featuredJobs = jobs; // đã giới hạn 6 ở API
   const featPageSize = 3;
   const featRawPages = Array.from({ length: Math.ceil(featuredJobs.length / featPageSize) }, (_, i) =>
     featuredJobs.slice(i * featPageSize, i * featPageSize + featPageSize)
   );
-  const featPages = featRawPages; // không pad thêm để tránh trùng job
+  const featPages = featRawPages;
   const featTimer = useRef(null);
   useEffect(() => {
     if (featPages.length <= 1) return;
@@ -107,25 +143,11 @@ function Home() {
     return () => featTimer.current && clearInterval(featTimer.current);
   }, [featPages.length]);
 
-  // Fetch jobs
-  useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        setLoading(true);
-        const res = await jobService.getAllJobs();
-        setJobs(Array.isArray(res.data?.data) ? res.data.data : []);
-      } catch (e) {
-        console.log('Server chưa chạy hoặc lỗi kết nối:', e.message);
-        setJobs([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchJobs();
-  }, []);
-
-  // === RENDER GIAO DIỆN ===
-  const navigate = useNavigate();
+  const onSearch = () => {
+    const q = search.trim();
+    if (!q) return navigate('/jobs');
+    navigate(`/jobs?search=${encodeURIComponent(q)}`);
+  };
 
   return (
     <div>
@@ -148,11 +170,14 @@ function Home() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && onSearch()}
                 placeholder="Tìm kiếm việc làm, vị trí, công ty..."
                 className="flex-1 px-3 py-2 outline-none text-gray-800"
               />
             </div>
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl">Tìm kiếm</button>
+            <button onClick={onSearch} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl" type="button">
+              Tìm kiếm
+            </button>
           </div>
 
           {/* Trending carousel (có hiệu ứng shimmer) */}
@@ -206,7 +231,7 @@ function Home() {
         </div>
       </section>
 
-      {/* PHẦN DƯỚI GIỮ NGUYÊN */}
+      {/* Ngành nghề phổ biến */}
       <section className="container mx-auto px-4 mt-10">
         <h2 className="text-center text-2xl font-bold text-gray-800 mb-6">Ngành nghề phổ biến</h2>
         <div
@@ -239,9 +264,6 @@ function Home() {
                       <p className="font-semibold text-gray-900">{c.name}</p>
                       <p className="text-sm text-gray-500">{c.jobs} việc làm</p>
                     </div>
-                    <div className="w-8 h-8 rounded-full border bg-white flex items-center justify-center text-gray-400 group-hover:text-blue-600">
-                      ➜
-                    </div>
                   </div>
                 ))}
               </div>
@@ -251,74 +273,75 @@ function Home() {
       </section>
 
       {/* Featured Jobs */}
-      {(!loading && featuredJobs.length > 0) && (
-      <section className="container mx-auto px-4 mt-12 mb-16">
-        <h2 className="text-center text-2xl font-bold text-gray-800 mb-6">Việc làm mới nhất</h2>
-        <div
-          className="relative max-w-6xl mx-auto overflow-hidden"
-          onMouseEnter={() => featTimer.current && clearInterval(featTimer.current)}
-          onMouseLeave={() => {
-            if (featPages.length > 1) {
-              featTimer.current = setInterval(() => setFeatSlide((s) => (s + 1) % featPages.length), 3600);
-            }
-          }}
-        >
+      {!loading && featuredJobs.length > 0 && (
+        <section className="container mx-auto px-4 mt-12 mb-16">
+          <h2 className="text-center text-2xl font-bold text-gray-800 mb-6">Việc làm mới nhất</h2>
           <div
-            className="flex transition-transform duration-700 ease-[cubic-bezier(0.22,0.61,0.36,1)]"
-            style={{
-              width: `${featPages.length * 100}%`,
-              transform: `translateX(-${featSlide * (100 / featPages.length)}%)`,
+            className="relative max-w-6xl mx-auto overflow-hidden"
+            onMouseEnter={() => featTimer.current && clearInterval(featTimer.current)}
+            onMouseLeave={() => {
+              if (featPages.length > 1) {
+                featTimer.current = setInterval(() => setFeatSlide((s) => (s + 1) % featPages.length), 3600);
+              }
             }}
           >
-            {featPages.map((group, gi) => (
-              <div key={gi} className="w-full grid grid-cols-1 md:grid-cols-3 gap-5">
-                {group.map((job, i) => (
-                  <div
-                    key={`${gi}-${job.id}-${i}`}
-                    onClick={() => navigate(`/jobs/${job.id}`)}
-                    className="bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-5 cursor-pointer"
-                  >
-                    <div className="flex items-start gap-3 mb-3">
-                      {job.companyLogo ? (
-                        <img src={job.companyLogo} alt="logo" className="w-10 h-10 rounded-lg object-cover border" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 border" />
-                      )}
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900 line-clamp-2">{job.title}</p>
-                        <p className="text-sm text-gray-500">{job.company}</p>
-                      </div>
-                    </div>
-                    <ul className="text-sm text-gray-600 space-y-1 mb-4">
-                      <li>📍 {job.location}</li>
-                      <li>💰 {job.salary}</li>
-                      <li>⏱️ {job.type}</li>
-                    </ul>
-                    <button className="w-full rounded-lg bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white py-2.5 text-sm font-medium hover:opacity-95"
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}
+            <div
+              className="flex transition-transform duration-700 ease-[cubic-bezier(0.22,0.61,0.36,1)]"
+              style={{
+                width: `${featPages.length * 100}%`,
+                transform: `translateX(-${featSlide * (100 / featPages.length)}%)`,
+              }}
+            >
+              {featPages.map((group, gi) => (
+                <div key={gi} className="w-full grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {group.map((job, i) => (
+                    <div
+                      key={`${gi}-${job.id}-${i}`}
+                      onClick={() => navigate(`/jobs/${job.id}`)}
+                      className="bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-5 cursor-pointer"
                     >
-                      Ứng tuyển ngay
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          {featPages.length > 1 && (
-            <div className="absolute -bottom-5 inset-x-0 flex justify-center gap-2">
-              {featPages.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setFeatSlide(i)}
-                  className={`h-1.5 rounded-full transition-all ${i === featSlide ? 'w-6 bg-gray-700' : 'w-2 bg-gray-300'}`}
-                  aria-label={`Trang nổi bật ${i + 1}`}
-                />
+                      <div className="flex items-start gap-3 mb-3">
+                        {job.companyLogo ? (
+                          <img src={job.companyLogo} alt="logo" className="w-10 h-10 rounded-lg object-cover border" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 border" />
+                        )}
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-900 line-clamp-2">{job.title}</p>
+                          <p className="text-sm text-gray-500">{job.company}</p>
+                        </div>
+                      </div>
+                      <ul className="text-sm text-gray-600 space-y-1 mb-4">
+                        <li>📍 {job.location}</li>
+                        <li>💰 {job.salary}</li>
+                        <li>⏱️ {typeViMap[job.type] || job.type}</li>
+                      </ul>
+                      <button
+                        className="w-full rounded-lg bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white py-2.5 text-sm font-medium hover:opacity-95"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}
+                      >
+                        Ứng tuyển ngay
+                      </button>
+                    </div>
+                  ))}
+                </div>
               ))}
             </div>
-          )}
-        </div>
-      </section>
+            {featPages.length > 1 && (
+              <div className="absolute -bottom-5 inset-x-0 flex justify-center gap-2">
+                {featPages.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setFeatSlide(i)}
+                    className={`h-1.5 rounded-full transition-all ${i === featSlide ? 'w-6 bg-gray-700' : 'w-2 bg-gray-300'}`}
+                    aria-label={`Trang nổi bật ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {/* Loading skeletons */}
@@ -349,5 +372,3 @@ function Home() {
     </div>
   );
 }
-
-export default Home;
