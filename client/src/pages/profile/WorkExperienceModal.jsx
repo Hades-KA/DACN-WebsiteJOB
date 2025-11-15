@@ -20,7 +20,6 @@ function MiniRichTextEditor({ value, onChange, placeholder = '' }) {
   };
 
   const applyHeader = (h) => {
-    // h: '', 'H1', 'H2', 'H3'
     exec('formatBlock', h || 'P');
   };
 

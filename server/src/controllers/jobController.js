@@ -1,7 +1,7 @@
-const { Job, User, Application } = require('../models');
+const { Job, User, Application, CV } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/database'); // thêm để dùng transaction/raw query
+const { sequelize } = require('../config/database');
 
 /* ================= Helpers ================= */
 
@@ -37,10 +37,17 @@ function daysFromPosted(p) {
 // Kiểm tra model có cột (tránh query vào cột chưa migrate)
 const hasAttr = (name) => !!(Job?.rawAttributes && Job.rawAttributes[name]);
 
+// Chuẩn hóa URL tuyệt đối cho file tĩnh
+const absoluteUrl = (req, url) => {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;      // đã là absolute
+  if (!url.startsWith('/')) return url;           // không phải static path
+  return `${req.protocol}://${req.get('host')}${url}`;
+};
+
 /* ================= Controllers ================= */
 
 // GET /api/jobs
-// Lấy danh sách jobs (public) với filter + sort + pagination
 async function getAllJobs(req, res) {
   try {
     const {
@@ -288,7 +295,7 @@ async function updateJob(req, res) {
   }
 }
 
-// DELETE /api/jobs/:id (employer) — xóa con trước rồi xóa job (tránh timeout/treo)
+// DELETE /api/jobs/:id
 async function deleteJob(req, res) {
   try {
     const { id } = req.params;
@@ -304,24 +311,18 @@ async function deleteJob(req, res) {
 
     await sequelize.transaction(async (t) => {
       // Xóa applications
-      await sequelize.query(
-        'DELETE FROM dbo.applications WHERE jobId = :id',
-        { replacements: { id }, transaction: t }
-      );
+      await sequelize.query('DELETE FROM dbo.applications WHERE jobId = :id', { replacements: { id }, transaction: t });
 
-      // Xóa invitations nếu có bảng
+      // Xóa invitations (nếu có)
       await sequelize.query(
         "IF OBJECT_ID(N'dbo.invitations', N'U') IS NOT NULL DELETE FROM dbo.invitations WHERE jobId = :id",
         { replacements: { id }, transaction: t }
       );
 
-      // Xóa saved_jobs (phòng khi FK chưa CASCADE)
-      await sequelize.query(
-        'DELETE FROM dbo.saved_jobs WHERE jobId = :id',
-        { replacements: { id }, transaction: t }
-      );
+      // Xóa saved_jobs
+      await sequelize.query('DELETE FROM dbo.saved_jobs WHERE jobId = :id', { replacements: { id }, transaction: t });
 
-      // Cuối cùng xóa job
+      // Xóa job
       await Job.destroy({ where: { id }, transaction: t });
     });
 
@@ -332,7 +333,7 @@ async function deleteJob(req, res) {
   }
 }
 
-// GET /api/jobs/search (legacy) -> dùng chung logic getAllJobs
+// GET /api/jobs/search (legacy) -> dùng chung getAllJobs
 async function searchJobs(req, res) {
   if (req.query.title && !req.query.search) {
     req.query.search = req.query.title;
@@ -340,7 +341,7 @@ async function searchJobs(req, res) {
   return getAllJobs(req, res);
 }
 
-// GET /api/jobs/:id/applications (owner/admin)
+/* ============ CHỈNH: trả applications kèm snapshot + CV (có fallback từ candidate.cvUrl/cvName) ============ */
 async function getJobApplications(req, res) {
   try {
     const { id } = req.params;
@@ -360,17 +361,54 @@ async function getJobApplications(req, res) {
     const whereClause = { jobId: id };
     if (status) whereClause.status = status;
 
-    const { count, rows: applications } = await Application.findAndCountAll({
+    const { count, rows } = await Application.findAndCountAll({
       where: whereClause,
-      include: [{ model: User, as: 'candidate', attributes: ['id', 'name', 'email', 'phone'] }],
+      include: [
+        // THÊM cvUrl, cvName để có thể fallback khi application không có cv
+        { model: User, as: 'candidate', attributes: ['id','name','email','phone','location','position','avatar','cvUrl','cvName'] },
+        { model: CV, as: 'cv', attributes: ['id','fileName','filePath'], required: false }
+      ],
       order: [['createdAt', 'DESC']],
       limit: limitNum,
       offset,
     });
 
+    const data = rows.map(r => {
+      const a = r.toJSON();
+
+      // Merge snapshot nếu có
+      let candidate = a.candidate || {};
+      if (a.candidateSnapshot) {
+        try { candidate = { ...candidate, ...JSON.parse(a.candidateSnapshot) }; } catch {}
+      }
+
+      // Ưu tiên cv JOIN → metadata → fallback từ candidate.cvUrl
+      let cv = a.cv || null;
+      if (!cv && (a.cvId || a.cvName || a.cvFilePath)) {
+        cv = { id: a.cvId || null, fileName: a.cvName || null, filePath: a.cvFilePath || null };
+      }
+      if (!cv && candidate?.cvUrl) {
+        cv = { id: null, fileName: candidate.cvName || 'CV.pdf', filePath: candidate.cvUrl };
+      }
+      if (cv?.filePath) {
+        cv.url = absoluteUrl(req, cv.filePath);
+      }
+
+      return {
+        id: a.id,
+        status: a.status,
+        createdAt: a.createdAt,
+        coverLetter: a.coverLetter,
+        candidateId: a.candidateId,
+        jobId: a.jobId,
+        candidate,
+        cv
+      };
+    });
+
     return res.json({
       message: 'Applications retrieved successfully',
-      data: applications,
+      data,
       pagination: {
         currentPage: pageNum,
         totalPages: Math.ceil(count / limitNum),

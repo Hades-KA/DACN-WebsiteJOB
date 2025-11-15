@@ -16,18 +16,18 @@ const { Application, Job, CV, User } = require('../models');
 const router = express.Router();
 
 /* ================= Options cố định cho form/filter ================= */
-const LEVELS = ['Thực tập sinh','Nhân viên','Trưởng phòng','Quản lý','Giám đốc'];
-const EDUCATIONS = ['THPT','Cao đẳng','Đại học','Thạc sĩ','Tiến sĩ'];
-const EXP_BANDS = ['Dưới 1 năm','1-3 năm','3-5 năm','5-10 năm','Trên 10 năm'];
-const SALARY_BANDS = ['Dưới 5 triệu','5-10 triệu','10-20 triệu','Trên 20 triệu'];
-const WORK_MODES = ['onsite','hybrid','remote'];
+const LEVELS = ['Thực tập sinh', 'Nhân viên', 'Trưởng phòng', 'Quản lý', 'Giám đốc'];
+const EDUCATIONS = ['THPT', 'Cao đẳng', 'Đại học', 'Thạc sĩ', 'Tiến sĩ'];
+const EXP_BANDS = ['Dưới 1 năm', '1-3 năm', '3-5 năm', '5-10 năm', 'Trên 10 năm'];
+const SALARY_BANDS = ['Dưới 5 triệu', '5-10 triệu', '10-20 triệu', 'Trên 20 triệu'];
+const WORK_MODES = ['onsite', 'hybrid', 'remote'];
 
 /* ================= Validation rules ================= */
 const createJobValidation = [
   body('title').trim().isLength({ min: 1, max: 255 }).withMessage('Title is required (max 255 characters)'),
   body('company').trim().isLength({ min: 1, max: 255 }).withMessage('Company name is required (max 255 characters)'),
   body('location').trim().notEmpty().withMessage('Location is required'),
-  body('type').isIn(['full-time','part-time','contract','intern']).withMessage('Invalid job type'),
+  body('type').isIn(['full-time', 'part-time', 'contract', 'intern']).withMessage('Invalid job type'),
 
   body('description').trim().isLength({ min: 1, max: 5000 }).withMessage('Description is required'),
   body('requirements').trim().isLength({ min: 1, max: 3000 }).withMessage('Requirements is required'),
@@ -48,7 +48,10 @@ const createJobValidation = [
     if (v == null) return true;
     if (Array.isArray(v)) return true;
     if (typeof v === 'string') {
-      try { const x = JSON.parse(v); if (Array.isArray(x)) return true; } catch (e) {}
+      try {
+        const x = JSON.parse(v);
+        if (Array.isArray(x)) return true;
+      } catch (e) {}
     }
     throw new Error('skills must be array or JSON array string');
   }),
@@ -65,7 +68,7 @@ const updateJobValidation = [
   body('title').optional().trim().isLength({ min: 1, max: 255 }),
   body('company').optional().trim().isLength({ min: 1, max: 255 }),
   body('location').optional().trim().isLength({ min: 1 }),
-  body('type').optional().isIn(['full-time','part-time','contract','intern']),
+  body('type').optional().isIn(['full-time', 'part-time', 'contract', 'intern']),
   body('description').optional().trim().isLength({ min: 1, max: 5000 }),
   body('requirements').optional().trim().isLength({ min: 1, max: 3000 }),
   body('category').optional().trim().isLength({ min: 1 }),
@@ -84,7 +87,10 @@ const updateJobValidation = [
     if (v == null) return true;
     if (Array.isArray(v)) return true;
     if (typeof v === 'string') {
-      try { const x = JSON.parse(v); if (Array.isArray(x)) return true; } catch (e) {}
+      try {
+        const x = JSON.parse(v);
+        if (Array.isArray(x)) return true;
+      } catch (e) {}
     }
     throw new Error('skills must be array or JSON array string');
   }),
@@ -131,7 +137,7 @@ router.get(
   }
 );
 
-/* ================= Candidate apply job ================= */
+/* ================= Candidate apply job (SAVE SNAPSHOT) ================= */
 router.post(
   '/:jobId/apply',
   auth,
@@ -151,28 +157,71 @@ router.post(
       const { cvId, coverLetter, expectedSalary, availableFrom } = req.body;
       const candidateId = req.user?.userId ?? req.user?.id;
 
+      // 1) Kiểm tra job còn active
       const job = await Job.findOne({ where: { id: jobId, isActive: true } });
       if (!job) return res.status(404).json({ message: 'Job not found or not active' });
 
+      // 2) Ngăn nộp trùng
       const existing = await Application.findOne({ where: { jobId, candidateId } });
       if (existing) return res.status(400).json({ message: 'You have already applied for this job' });
 
+      // 3) Lấy metadata CV (nếu chọn)
+      let cvMeta = {};
       if (cvId) {
         const cv = await CV.findOne({ where: { id: cvId, candidateId } });
         if (!cv) return res.status(400).json({ message: 'Invalid cvId or you do not own this CV' });
+        cvMeta = { cvName: cv.fileName, cvFilePath: cv.filePath };
       }
 
+      // 4) Snapshot hồ sơ ứng viên hiện tại
+      const u = await User.findByPk(candidateId, {
+        attributes: [
+          'id',
+          'name',
+          'email',
+          'phone',
+          'position',
+          'location',
+          'about',
+          'skills',
+          'experience',
+          'education',
+          'avatar',
+        ],
+      });
+
+      const snapshot = u
+        ? {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            phone: u.phone,
+            position: u.position,
+            location: u.location,
+            about: u.about,
+            skills: u.skills,
+            experience: u.experience,
+            education: u.education,
+            avatar: u.avatar,
+          }
+        : {};
+
+      // 5) Tạo application
       const application = await Application.create({
         jobId,
         candidateId,
         cvId: cvId || null,
-        coverLetter,
+        coverLetter: coverLetter || null,
         expectedSalary: expectedSalary ? parseFloat(expectedSalary) : null,
         availableFrom: availableFrom ? new Date(availableFrom) : null,
         status: 'pending',
+        candidateSnapshot: JSON.stringify(snapshot),
+        ...cvMeta,
       });
 
-      await job.increment('applicationsCount');
+      // 6) Tăng bộ đếm ứng tuyển (không chặn nếu lỗi)
+      await job.increment('applicationsCount').catch(() => {});
+
       return res.status(201).json({ message: 'Application submitted successfully', data: application });
     } catch (error) {
       console.error('Apply job error:', error);
@@ -186,6 +235,7 @@ router.post('/', auth, requireEmployer, createJobValidation, createJob);
 router.put('/:id', auth, requireEmployer, updateJobValidation, updateJob);
 router.delete('/:id', auth, requireEmployer, deleteJob);
 
+// Lấy danh sách ứng tuyển của 1 job (đã được controller trả kèm snapshot + CV)
 router.get('/:id/applications', auth, requireEmployer, getJobApplications);
 
 router.patch(

@@ -86,6 +86,7 @@ export default function MyProfile() {
   // Tự phát hiện schema từ server
   const [expKey, setExpKey] = useState(null);       // 'workExperiences' | 'experiences'
   const [expIsString, setExpIsString] = useState(false); // true nếu server lưu string JSON
+  const [serverSupportsExp, setServerSupportsExp] = useState(false); // có field exp không
 
   // CV
   const [cvFile, setCvFile] = useState(null);
@@ -152,8 +153,10 @@ export default function MyProfile() {
       let detectedKey = null;
       let detectedIsString = false;
       let wx = [];
+      let hasExpField = false;
 
       if (data.workExperiences !== undefined) {
+        hasExpField = true;
         detectedKey = 'workExperiences';
         if (typeof data.workExperiences === 'string') {
           detectedIsString = true;
@@ -162,6 +165,7 @@ export default function MyProfile() {
           wx = normalizeExp(data.workExperiences);
         }
       } else if (data.experiences !== undefined) {
+        hasExpField = true;
         detectedKey = 'experiences';
         if (typeof data.experiences === 'string') {
           detectedIsString = true;
@@ -176,6 +180,7 @@ export default function MyProfile() {
 
       setExpKey(detectedKey);
       setExpIsString(detectedIsString);
+      setServerSupportsExp(hasExpField);
 
       const wxNormalized = (wx || []).map((x) => ({ id: x.id || uid(), title: x.title || '', description: x.description || '' }));
       setWorkExperiences(wxNormalized);
@@ -342,21 +347,6 @@ export default function MyProfile() {
     }
   };
 
-  // Helper: thử nhiều payload cho /users/profile
-  const tryUpdateProfileWithCandidates = async (candidateBodies) => {
-    let lastErr;
-    for (const body of candidateBodies) {
-      try {
-        await userService.updateProfile(body);
-        return true;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    if (lastErr) throw lastErr;
-    return false;
-  };
-
   // Fallback: lưu kinh nghiệm vào careerGoals (comment ẩn)
   const saveExpIntoGoals = async (arr) => {
     const cleanGoals = stripExpFromGoals(goalsHtml || '');
@@ -364,7 +354,7 @@ export default function MyProfile() {
     await userService.updateProfile({ careerGoals: combined });
   };
 
-  // Work Experience: add/edit/save/delete
+  // Work Experience: add/edit/save — không spam 400 nữa
   const handleSaveWorkExperience = async (expData) => {
     const isEditing = Boolean(editingExperience);
     let nextUiList;
@@ -379,44 +369,34 @@ export default function MyProfile() {
 
     const arr = nextUiList.map(({ title, description }) => ({ title, description }));
 
-    // 1) Ưu tiên theo schema phát hiện từ GET
-    const preferred = [];
-    if (expKey) {
-      const obj = {};
-      obj[expKey] = expIsString ? JSON.stringify(arr) : arr;
-      preferred.push(obj);
-    }
-
-    // 2) Fallback các biến thể phổ biến
-    const fallbacks = [
-      { workExperiences: arr },
-      { experiences: arr },
-      { workExperiences: JSON.stringify(arr) },
-      { experiences: JSON.stringify(arr) },
-    ];
-
-    // Ghép và loại bỏ trùng
-    const seen = new Set();
-    const candidates = [...preferred, ...fallbacks].filter((b) => {
-      const key = JSON.stringify(b);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    try {
-      // Thử gửi qua field riêng
-      await tryUpdateProfileWithCandidates(candidates);
-    } catch {
-      // Không được: lưu vào careerGoals dưới dạng comment ẩn
+    // Nếu server KHÔNG có field exp -> lưu thẳng vào careerGoals để không phát sinh 400
+    if (!serverSupportsExp) {
       try {
         await saveExpIntoGoals(arr);
       } catch (e2) {
-        return toast.error(
-          e2?.response?.data?.message ||
-          e2?.response?.data?.error ||
-          'Lưu kinh nghiệm thất bại'
-        );
+        return toast.error(e2?.response?.data?.message || 'Lưu kinh nghiệm thất bại');
+      }
+      setWorkExperiences(nextUiList);
+      toast.success('Lưu kinh nghiệm làm việc thành công');
+      setOpenWorkExp(false);
+      setEditingExperience(null);
+      await loadProfile();
+      return;
+    }
+
+    // Server có field exp -> thử đúng key/format duy nhất
+    const payload = {
+      [expKey]: expIsString ? JSON.stringify(arr) : arr,
+    };
+
+    try {
+      await userService.updateProfile(payload);
+    } catch {
+      // Nếu vẫn lỗi, fallback goals (không thử nhiều biến thể để tránh log 400)
+      try {
+        await saveExpIntoGoals(arr);
+      } catch (e2) {
+        return toast.error(e2?.response?.data?.message || 'Lưu kinh nghiệm thất bại');
       }
     }
 
@@ -427,60 +407,12 @@ export default function MyProfile() {
     await loadProfile();
   };
 
+  // Nút “+ Thêm…”: nếu đã có mục trước đó -> mở modal với mục gần nhất để chỉnh sửa
   const handleOpenAddExperience = () => {
-    setEditingExperience(null);
+    const last = workExperiences?.[workExperiences.length - 1];
+    if (last) setEditingExperience(last);
+    else setEditingExperience(null);
     setOpenWorkExp(true);
-  };
-
-  const handleOpenEditExperience = (exp) => {
-    setEditingExperience(exp);
-    setOpenWorkExp(true);
-  };
-
-  const handleDeleteExperience = async (experienceId) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa kinh nghiệm này không?')) return;
-
-    const nextUiList = workExperiences.filter((x) => x.id !== experienceId);
-    const arr = nextUiList.map(({ title, description }) => ({ title, description }));
-
-    const preferred = [];
-    if (expKey) {
-      const obj = {};
-      obj[expKey] = expIsString ? JSON.stringify(arr) : arr;
-      preferred.push(obj);
-    }
-    const fallbacks = [
-      { workExperiences: arr },
-      { experiences: arr },
-      { workExperiences: JSON.stringify(arr) },
-      { experiences: JSON.stringify(arr) },
-    ];
-    const seen = new Set();
-    const candidates = [...preferred, ...fallbacks].filter((b) => {
-      const key = JSON.stringify(b);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    try {
-      await tryUpdateProfileWithCandidates(candidates);
-    } catch {
-      // Fallback lưu vào goals
-      try {
-        await saveExpIntoGoals(arr);
-      } catch (e2) {
-        return toast.error(
-          e2?.response?.data?.message ||
-          e2?.response?.data?.error ||
-          'Xóa kinh nghiệm thất bại'
-        );
-      }
-    }
-
-    setWorkExperiences(nextUiList);
-    toast.success('Xóa kinh nghiệm thành công');
-    await loadProfile();
   };
 
   const fileNameForType = cvFile?.name || cvFile?.url || '';
@@ -602,8 +534,6 @@ export default function MyProfile() {
                 <WorkExperienceItem
                   key={exp.id || idx}
                   experience={exp}
-                  onEdit={() => handleOpenEditExperience(exp)}
-                  onDelete={() => handleDeleteExperience(exp.id)}
                 />
               ))}
             </div>
@@ -763,20 +693,13 @@ export default function MyProfile() {
 
 /* ================== UI helpers ================== */
 
-function WorkExperienceItem({ experience, onEdit, onDelete }) {
+// ĐÃ BỎ icon sửa/xóa theo yêu cầu
+function WorkExperienceItem({ experience }) {
   const str = experience?.description || '';
   const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(str);
 
   return (
-    <div className="relative group border-b border-gray-100 pb-4 last:border-0 last:pb-0">
-      <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-        <button onClick={onEdit} className="p-1 text-gray-500 hover:text-blue-600" title="Sửa">
-          <Pencil size={16} />
-        </button>
-        <button onClick={onDelete} className="p-1 text-gray-500 hover:text-red-600" title="Xóa">
-          <Trash2 size={16} />
-        </button>
-      </div>
+    <div className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
       <h3 className="font-semibold text-gray-800 text-[16px]">{experience.title}</h3>
 
       {str ? (

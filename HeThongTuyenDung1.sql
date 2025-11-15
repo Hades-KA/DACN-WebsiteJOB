@@ -1,8 +1,4 @@
-/* ===============================
-   HeThongTuyenDung – FULL DDL + SAFE PATCH (idempotent)
-   =============================== */
 
----------------------------------
 -- 0. Tạo Database nếu chưa có
 ---------------------------------
 IF DB_ID(N'HeThongTuyenDung') IS NULL
@@ -402,3 +398,82 @@ WHERE parent_id = OBJECT_ID('dbo.jobs');
 PRINT '=== Admin hiện có ===';
 SELECT [id],[email],[userType] FROM [dbo].[users] WHERE [userType] = 'admin';
 GO
+
+
+-- PATCH 1: Thêm các cột mới (snapshot + CV metadata)
+BEGIN TRY
+BEGIN TRAN;
+
+IF COL_LENGTH('dbo.applications','candidateSnapshot') IS NULL
+ALTER TABLE dbo.applications ADD candidateSnapshot NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.applications','cvName') IS NULL
+ALTER TABLE dbo.applications ADD cvName NVARCHAR(255) NULL;
+
+IF COL_LENGTH('dbo.applications','cvFilePath') IS NULL
+ALTER TABLE dbo.applications ADD cvFilePath NVARCHAR(500) NULL;
+
+IF COL_LENGTH('dbo.applications','statusHistory') IS NULL
+ALTER TABLE dbo.applications ADD statusHistory NVARCHAR(MAX) NULL;
+
+COMMIT TRAN;
+END TRY
+BEGIN CATCH
+IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+THROW;
+END CATCH;
+GO
+
+-- PATCH 2: Đặt DEFAULT, fill giá trị và chuyển NOT NULL cho statusHistory (dùng dynamic SQL)
+IF COL_LENGTH('dbo.applications','statusHistory') IS NOT NULL
+BEGIN
+DECLARE @hasDefault bit = 0;
+
+IF EXISTS (
+SELECT 1
+FROM sys.default_constraints dc
+JOIN sys.columns c
+ON c.object_id = dc.parent_object_id
+AND c.column_id = dc.parent_column_id
+WHERE dc.parent_object_id = OBJECT_ID('dbo.applications')
+AND c.name = 'statusHistory'
+)
+SET @hasDefault = 1;
+
+IF (@hasDefault = 0)
+EXEC('ALTER TABLE dbo.applications ADD CONSTRAINT DF_Applications_StatusHistory DEFAULT ''[]'' FOR statusHistory');
+
+EXEC('UPDATE dbo.applications SET statusHistory = ''[]'' WHERE statusHistory IS NULL');
+
+EXEC('ALTER TABLE dbo.applications ALTER COLUMN statusHistory NVARCHAR(MAX) NOT NULL');
+END
+GO
+
+-- Kiểm tra nhanh
+SELECT TOP 1 candidateSnapshot, cvName, cvFilePath, statusHistory
+FROM dbo.applications;
+
+BEGIN TRY
+BEGIN TRAN;
+
+IF COL_LENGTH('dbo.users','level')           IS NULL ALTER TABLE dbo.users ADD [level] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','workType')        IS NULL ALTER TABLE dbo.users ADD [workType] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','degree')          IS NULL ALTER TABLE dbo.users ADD [degree] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','industry')        IS NULL ALTER TABLE dbo.users ADD [industry] NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.users','jobCategory')     IS NULL ALTER TABLE dbo.users ADD [jobCategory] NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.users','experienceBand')  IS NULL ALTER TABLE dbo.users ADD [experienceBand] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','expectedSalary')  IS NULL ALTER TABLE dbo.users ADD [expectedSalary] INT NULL;
+IF COL_LENGTH('dbo.users','birthdate')       IS NULL ALTER TABLE dbo.users ADD [birthdate] DATE NULL;
+IF COL_LENGTH('dbo.users','address')         IS NULL ALTER TABLE dbo.users ADD [address] NVARCHAR(255) NULL;
+IF COL_LENGTH('dbo.users','gender')          IS NULL ALTER TABLE dbo.users ADD [gender] NVARCHAR(10) NULL;
+IF COL_LENGTH('dbo.users','maritalStatus')   IS NULL ALTER TABLE dbo.users ADD [maritalStatus] NVARCHAR(20) NULL;
+IF COL_LENGTH('dbo.users','jobAlertOn')      IS NULL ALTER TABLE dbo.users ADD [jobAlertOn] BIT NOT NULL DEFAULT 1;
+IF COL_LENGTH('dbo.users','careerGoals')     IS NULL ALTER TABLE dbo.users ADD [careerGoals] NVARCHAR(MAX) NULL;
+-- skills đã có: NVARCHAR(MAX), dùng để lưu JSON hoặc chuỗi
+
+COMMIT TRAN;
+END TRY
+BEGIN CATCH
+IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+THROW;
+END CATCH;

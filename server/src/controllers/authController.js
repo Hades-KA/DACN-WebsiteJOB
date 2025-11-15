@@ -1,4 +1,6 @@
 // server/src/controllers/authController.js
+'use strict';
+
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const { User } = require('../models');
@@ -8,8 +10,9 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 
+/* ============ helpers ============ */
 const generateToken = (userId) =>
-  jwt.sign({ userId }, process.env.JWT_SECRET, {
+  jwt.sign({ userId }, process.env.JWT_SECRET || 'secret', {
     expiresIn: process.env.JWT_EXPIRE || '7d',
   });
 
@@ -25,10 +28,16 @@ const sanitizeUser = (u) => {
   return json;
 };
 
-// ========== AUTH ==========
+const devMsg = (e) => (process.env.NODE_ENV === 'development' ? (e?.original?.message || e?.message) : undefined);
+const buildBaseUrl = (req) => {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  return `${proto}://${host}`;
+};
+
+/* ============ AUTH ============ */
 exports.register = async (req, res) => {
   try {
-    // validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
@@ -38,39 +47,31 @@ exports.register = async (req, res) => {
     email = (email || '').trim().toLowerCase();
     userType = userType || 'candidate';
 
-    // check duplicate email
     const existed = await User.findOne({ where: { email } });
-    if (existed) {
-      return res.status(409).json({ message: 'Email đã tồn tại' });
-    }
+    if (existed) return res.status(409).json({ message: 'Email đã tồn tại' });
 
-    // hash password (không dựa vào hook để tránh rủi ro khi dùng raw)
     const hash = await bcrypt.hash(password, 12);
 
-    // raw insert (tránh OUTPUT INSERTED; dùng GETDATE() để không lỗi DATETIME)
-    const sql = `
-      INSERT INTO [dbo].[users]
-      ([id],[name],[email],[password],[phone],[userType],[company],[isActive],[isVerified],[createdAt],[updatedAt])
-      VALUES (NEWID(), :name, :email, :password, :phone, :userType, :company, 1, 0, GETDATE(), GETDATE())
-    `;
+    // Raw insert để đảm bảo default/time
+    await sequelize.query(
+      `INSERT INTO [dbo].[users]
+       ([id],[name],[email],[password],[phone],[userType],[company],[isActive],[isVerified],[createdAt],[updatedAt])
+       VALUES (NEWID(), :name, :email, :password, :phone, :userType, :company, 1, 0, GETDATE(), GETDATE())`,
+      {
+        replacements: {
+          name,
+          email,
+          password: hash,
+          phone: phone || null,
+          userType,
+          company: userType === 'employer' ? (company || null) : null,
+        },
+        type: QueryTypes.INSERT,
+      }
+    );
 
-    await sequelize.query(sql, {
-      replacements: {
-        name,
-        email,
-        password: hash,
-        phone: phone || null,
-        userType,
-        company: userType === 'employer' ? (company || null) : null,
-      },
-      type: QueryTypes.INSERT,
-    });
-
-    // select lại user
     const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(500).json({ message: 'Registration failed', error: 'User not found right after insert' });
-    }
+    if (!user) return res.status(500).json({ message: 'Registration failed', error: 'User not found right after insert' });
 
     const token = generateToken(user.id);
     return res.status(201).json({
@@ -78,12 +79,10 @@ exports.register = async (req, res) => {
       data: { user: sanitizeUser(user), token },
     });
   } catch (error) {
-    console.error('Registration error:', error.original?.message || error.message);
+    console.error('Registration error:', error?.original?.message || error.message);
     return res.status(500).json({
       message: 'Registration failed',
-      error: process.env.NODE_ENV === 'development'
-        ? (error.original?.message || error.message)
-        : 'Internal server error',
+      error: devMsg(error),
     });
   }
 };
@@ -95,7 +94,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
     }
 
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
     const user = await User.findOne({ where: { email: (email || '').toLowerCase() } });
     if (!user) return res.status(400).json({ message: 'Đăng nhập thất bại', error: 'Email hoặc mật khẩu không đúng' });
 
@@ -105,10 +104,10 @@ exports.login = async (req, res) => {
     const token = generateToken(user.id);
     return res.json({ message: 'Login successful', data: { user: sanitizeUser(user), token } });
   } catch (error) {
-    console.error('Login error:', error.original?.message || error.message);
+    console.error('Login error:', error?.original?.message || error.message);
     return res.status(500).json({
       message: 'Login failed',
-      error: process.env.NODE_ENV === 'development' ? (error.original?.message || error.message) : 'Internal server error',
+      error: devMsg(error),
     });
   }
 };
@@ -118,118 +117,151 @@ exports.logout = async (_req, res) => {
     return res.json({ message: 'Logout successful' });
   } catch (error) {
     console.error('Logout error:', error);
-    return res.status(500).json({
-      message: 'Logout failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-    });
+    return res.status(500).json({ message: 'Logout failed', error: devMsg(error) });
   }
 };
 
-// ========== PROFILE ==========
+/* ============ PROFILE (Hồ sơ của tôi) ============ */
+// GET /api/users/profile
 exports.getProfile = async (req, res) => {
   try {
     const id = getUserIdFromReq(req);
     if (!id) return res.status(401).json({ message: 'Unauthorized' });
 
-    const user = await User.findByPk(id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    // Lấy đầy đủ cột (kể cả cột mới) bằng raw SQL
+    const [u] = await sequelize.query(
+      `SELECT TOP 1
+         id, name, email, phone, userType,
+         position, location, about, skills, experience, education,
+         [level], workType, degree, industry, jobCategory, experienceBand, expectedSalary,
+         birthdate, [address], gender, maritalStatus, jobAlertOn, careerGoals,
+         cvUrl, cvName, cvSize, createdAt, updatedAt
+       FROM dbo.users WHERE id = :id`,
+      { replacements: { id }, type: QueryTypes.SELECT }
+    );
+    if (!u) return res.status(404).json({ message: 'User not found' });
 
-    const data = sanitizeUser(user);
-    if (typeof data.skills === 'string' && data.skills) {
-      data.skills = data.skills.split(',').map((s) => s.trim()).filter(Boolean);
+    // Chuẩn hóa skills: parse JSON nếu có, nếu không thì CSV -> array
+    let outSkills = u.skills;
+    if (typeof outSkills === 'string' && outSkills) {
+      try {
+        const parsed = JSON.parse(outSkills);
+        outSkills = parsed;
+      } catch {
+        outSkills = outSkills.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    } else if (outSkills == null) {
+      outSkills = [];
     }
 
-    return res.json({ message: 'Profile retrieved successfully', data });
+    return res.json({
+      message: 'Profile retrieved successfully',
+      data: { ...u, skills: outSkills, jobAlertOn: Boolean(u.jobAlertOn) },
+    });
   } catch (error) {
     console.error('Get profile error:', error);
     return res.status(500).json({
       message: 'Failed to get profile',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      error: devMsg(error),
     });
   }
 };
 
+// PATCH /api/users/profile
 exports.updateProfile = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
-    }
-
     const id = getUserIdFromReq(req);
     if (!id) return res.status(401).json({ message: 'Unauthorized' });
 
+    // Nhận field theo UI mới
     const {
-      name, phone, company, position, location, about, skills, experience, education,
+      firstName, lastName,
+      name, phone, company, position, location, about, experience, education,
+      level, workType, degree, industry, jobCategory, experienceBand, expectedSalary,
+      birthdate, address, gender, maritalStatus, jobAlertOn, careerGoals,
+      skills
     } = req.body || {};
 
-    let skillsCsv;
-    if (Array.isArray(skills)) {
-      skillsCsv = skills.map((s) => String(s).trim()).filter(Boolean).join(', ');
-    } else if (typeof skills === 'string') {
-      skillsCsv = skills;
+    // Ghép họ tên nếu có
+    const fullName = (name || [firstName, lastName].filter(Boolean).join(' ').trim()) || undefined;
+
+    // Chuẩn hóa skills
+    let skillsValue;
+    if (typeof skills !== 'undefined') {
+      if (Array.isArray(skills)) {
+        skillsValue = JSON.stringify(skills); // [{name,level}] hoặc ['JS','React']
+      } else if (typeof skills === 'object' && skills) {
+        skillsValue = JSON.stringify(skills);
+      } else if (typeof skills === 'string') {
+        // Giữ CSV để tương thích cũ
+        skillsValue = skills;
+      } else {
+        skillsValue = null;
+      }
     }
 
+    // Build updates
     const updates = {};
-    if (typeof name !== 'undefined')        updates.name = name;
-    if (typeof phone !== 'undefined')       updates.phone = phone;
-    if (typeof company !== 'undefined')     updates.company = company;
-    if (typeof position !== 'undefined')    updates.position = position;
-    if (typeof location !== 'undefined')    updates.location = location;
-    if (typeof about !== 'undefined')       updates.about = about;
-    if (typeof experience !== 'undefined')  updates.experience = experience;
-    if (typeof education !== 'undefined')   updates.education = education;
-    if (typeof skillsCsv !== 'undefined')   updates.skills = skillsCsv;
+    if (typeof fullName !== 'undefined')        updates.name = fullName;
+    if (typeof phone !== 'undefined')           updates.phone = phone;
+    if (typeof company !== 'undefined')         updates.company = company;
+    if (typeof position !== 'undefined')        updates.position = position;
+    if (typeof location !== 'undefined')        updates.location = location;
+    if (typeof about !== 'undefined')           updates.about = about;
+    if (typeof experience !== 'undefined')      updates.experience = experience;
+    if (typeof education !== 'undefined')       updates.education = education;
+
+    if (typeof level !== 'undefined')           updates.level = level;
+    if (typeof workType !== 'undefined')        updates.workType = workType;
+    if (typeof degree !== 'undefined')          updates.degree = degree;
+    if (typeof industry !== 'undefined')        updates.industry = industry;
+    if (typeof jobCategory !== 'undefined')     updates.jobCategory = jobCategory;
+    if (typeof experienceBand !== 'undefined')  updates.experienceBand = experienceBand;
+
+    if (typeof expectedSalary !== 'undefined')  updates.expectedSalary = expectedSalary === '' ? null : Number(expectedSalary);
+
+    if (typeof birthdate !== 'undefined')       updates.birthdate = birthdate || null;
+    if (typeof address !== 'undefined')         updates.address = address;
+    if (typeof gender !== 'undefined')          updates.gender = gender;
+    if (typeof maritalStatus !== 'undefined')   updates.maritalStatus = maritalStatus;
+
+    if (typeof jobAlertOn !== 'undefined')      updates.jobAlertOn = jobAlertOn ? 1 : 0;
+    if (typeof careerGoals !== 'undefined')     updates.careerGoals = careerGoals;
+
+    if (typeof skillsValue !== 'undefined')     updates.skills = skillsValue;
+
+    // Không cho đổi email ở endpoint này
     delete updates.email;
 
-    try {
-      await User.update(updates, {
-        where: { id },
-        returning: false,
-        silent: true,
-      });
-    } catch (err) {
-      console.warn('Model.update failed, fallback to raw SQL. Reason:', err?.original?.message || err.message);
-      const fields = Object.keys(updates);
-      const setParts = fields.map((k) => `[${k}] = :${k}`);
-      setParts.push('[updatedAt] = GETDATE()');
-
-      const sql = `UPDATE [users] SET ${setParts.join(', ')} WHERE [id] = :id`;
-      await sequelize.query(sql, {
-        replacements: { id, ...updates },
-        type: QueryTypes.UPDATE,
-      });
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'Không có dữ liệu cập nhật' });
     }
 
-    const fresh = await User.findByPk(id);
-    if (!fresh) return res.status(404).json({ message: 'User not found after update' });
+    // Raw UPDATE (khỏi phụ thuộc model đủ cột)
+    const fields = Object.keys(updates);
+    const setParts = fields.map((k, i) => `[${k}] = :v${i}`);
+    setParts.push('[updatedAt] = GETDATE()');
 
-    const data = sanitizeUser(fresh);
-    if (typeof data.skills === 'string' && data.skills) {
-      data.skills = data.skills.split(',').map((s) => s.trim()).filter(Boolean);
-    }
+    const repl = { id };
+    fields.forEach((k, i) => { repl[`v${i}`] = updates[k]; });
 
-    return res.json({ message: 'Profile updated successfully', data });
+    await sequelize.query(
+      `UPDATE [dbo].[users] SET ${setParts.join(', ')} WHERE [id] = :id`,
+      { replacements: repl, type: QueryTypes.UPDATE }
+    );
+
+    return res.json({ message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Update profile error:', error);
-    console.error('DB detail:', error?.original?.message);
     return res.status(500).json({
       message: 'Failed to update profile',
-      error: process.env.NODE_ENV === 'development'
-        ? (error?.original?.message || error.message)
-        : undefined,
+      error: devMsg(error),
     });
   }
 };
 
-// Helpers cho CV
-const buildBaseUrl = (req) => {
-  const proto = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.get('host');
-  return `${proto}://${host}`;
-};
-
-// POST /api/users/profile/cv
+/* ============ CV Profile (giữ nguyên style hiện có) ============ */
+// POST /api/users/profile/cv  (multer cần gắn ở route)
 exports.uploadProfileCV = async (req, res) => {
   try {
     const id = getUserIdFromReq(req);
@@ -239,18 +271,20 @@ exports.uploadProfileCV = async (req, res) => {
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    // Nếu đang có CV cũ: xóa file cũ (nếu nằm trong /uploads)
     if (user.cvUrl) {
       try {
-        const currentName = user.cvUrl.split('/uploads/')[1];
-        if (currentName) {
-          const abs = path.resolve(process.cwd(), process.env.UPLOAD_PATH || 'uploads', currentName);
+        const afterUploads = user.cvUrl.split('/uploads/')[1];
+        if (afterUploads) {
+          const abs = path.resolve(process.cwd(), process.env.UPLOAD_PATH || 'uploads', afterUploads);
           if (fs.existsSync(abs)) fs.unlinkSync(abs);
         }
       } catch {}
     }
 
+    // Tạo URL public cho file mới ngay dưới /uploads
     const base = buildBaseUrl(req);
-    const filename = path.basename(req.file.path);
+    const filename = path.basename(req.file.path); // giả định lưu vào uploads/<filename>
     const cvUrl = `${base}/uploads/${filename}`;
 
     await User.update(
@@ -258,7 +292,7 @@ exports.uploadProfileCV = async (req, res) => {
       { where: { id }, returning: false, silent: true }
     );
 
-    return res.json({
+    return res.status(201).json({
       message: 'Tải lên CV thành công',
       data: { cvUrl, cvName: req.file.originalname, cvSize: req.file.size },
     });
@@ -266,7 +300,7 @@ exports.uploadProfileCV = async (req, res) => {
     console.error('Upload CV error:', error);
     return res.status(500).json({
       message: 'Upload CV failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: devMsg(error),
     });
   }
 };
@@ -282,9 +316,9 @@ exports.removeProfileCV = async (req, res) => {
 
     if (user.cvUrl) {
       try {
-        const currentName = user.cvUrl.split('/uploads/')[1];
-        if (currentName) {
-          const abs = path.resolve(process.cwd(), process.env.UPLOAD_PATH || 'uploads', currentName);
+        const afterUploads = user.cvUrl.split('/uploads/')[1];
+        if (afterUploads) {
+          const abs = path.resolve(process.cwd(), process.env.UPLOAD_PATH || 'uploads', afterUploads);
           if (fs.existsSync(abs)) fs.unlinkSync(abs);
         }
       } catch {}
@@ -300,7 +334,7 @@ exports.removeProfileCV = async (req, res) => {
     console.error('Remove CV error:', error);
     return res.status(500).json({
       message: 'Remove CV failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: devMsg(error),
     });
   }
 };
