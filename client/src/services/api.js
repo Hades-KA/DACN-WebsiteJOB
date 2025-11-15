@@ -34,13 +34,22 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error?.response?.status;
-    console.error('API Error:', {
-      method: error.config?.method?.toUpperCase(),
-      url: error.config?.url,
-      status,
-      data: error.response?.data,
-      msg: error.message,
-    });
+
+    // NEW: cho phép tắt log khi là request "thử" (fallback)
+    const silent =
+      error?.config?.headers?.['x-silent-error'] === '1' ||
+      error?.config?.headers?.['X-Silent-Error'] === '1' ||
+      error?.config?.silent === true;
+
+    if (!silent) {
+      console.error('API Error:', {
+        method: error.config?.method?.toUpperCase(),
+        url: error.config?.url,
+        status,
+        data: error.response?.data,
+        msg: error.message,
+      });
+    }
 
     if (status === 401) {
       localStorage.removeItem('token');
@@ -74,7 +83,6 @@ export const jobService = {
   getJobsByCompany: (companyId) => api.get(`/jobs/company/${companyId}`),
   applyJob: (jobId, applicationData) => api.post(`/jobs/${jobId}/apply`, applicationData),
   getJobApplications: (jobId) => api.get(`/jobs/${jobId}/applications`),
-  // NEW: toggle status
   updateJobStatus: (id, payload) => api.patch(`/jobs/${id}/status`, payload),
 };
 
@@ -95,7 +103,7 @@ export const cvService = {
 // User
 export const userService = {
   getProfile: () => api.get('/users/profile'),
-  updateProfile: (userData) => api.patch('/users/profile', userData),
+  updateProfile: (userData, config = {}) => api.patch('/users/profile', userData, config),
   changePassword: (passwordData) => api.put('/users/password', passwordData),
   uploadAvatar: (formData) =>
     api.post('/users/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
@@ -134,11 +142,8 @@ export const companyService = {
   createCompany: (companyData) => api.post('/companies', companyData),
   updateCompany: (id, companyData) => api.put(`/companies/${id}`, companyData),
   deleteCompany: (id) => api.delete(`/companies/${id}`),
-  // NEW: truyền params, ví dụ { active: 'all' }
   getCompanyJobs: (id, params = {}) => api.get(`/companies/${id}/jobs`, { params }),
   getCompanyStats: (id) => api.get(`/companies/${id}/stats`),
-
-  // NEW: upload logo (multipart/form-data)
   uploadLogo: (id, file) => {
     const form = new FormData();
     form.append('logo', file);

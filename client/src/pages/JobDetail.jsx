@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import api, { jobService, cvService } from '../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+import api, { jobService, cvService, applicationService } from '../services/api';
 import {
   MapPin,
   DollarSign,
@@ -88,14 +88,11 @@ export default function JobDetail() {
   const [similar, setSimilar] = useState([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
 
-  const [applyOpen, setApplyOpen] = useState(false);
-  const [coverLetter, setCoverLetter] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  // Quick apply
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
 
-  const [cvs, setCvs] = useState([]);
-  const [loadingCvs, setLoadingCvs] = useState(false);
-  const [selectedCvId, setSelectedCvId] = useState('');
-
+  // Save
   const [isSaved, setIsSaved] = useState(false);
   const [savedId, setSavedId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -126,6 +123,22 @@ export default function JobDetail() {
     })();
     return () => { active = false; };
   }, [id]);
+
+  // Check already applied (candidate)
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        if (!job?.id || !currentUserId) { if (active) setApplied(false); return; }
+        const res = await applicationService.getMyApplications({ jobId: job.id, limit: 1 });
+        const list = res?.data?.data || res?.data || [];
+        if (active) setApplied(Array.isArray(list) && list.length > 0);
+      } catch {
+        if (active) setApplied(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [job?.id, currentUserId]);
 
   // Check saved
   useEffect(() => {
@@ -211,45 +224,53 @@ export default function JobDetail() {
 
   const skills = parseSkills(job?.skills).slice(0, 50);
 
-  const openApply = async () => {
+  // One-click apply
+  const applyQuick = async () => {
     const token = localStorage.getItem('token');
     if (!token) return navigate('/login');
+
     if (userType && userType !== 'candidate' && userType !== 'admin') {
       toast.info('Chỉ ứng viên mới được nộp đơn');
       return;
     }
-    setApplyOpen(true);
-    setLoadingCvs(true);
+    if (applied) return;
+
     try {
+      setApplying(true);
+      // Lấy CV mới nhất của ứng viên
       const res = await cvService.getAllCVs();
-      let items = res.data?.data || res.data || [];
+      let items = res?.data?.data || res?.data || [];
       if (currentUserId) {
         items = items.filter(cv => String(cv.candidateId || '') === String(currentUserId));
       }
-      setCvs(items);
-      if (items.length > 0) setSelectedCvId(items[0].id);
-    } catch {
-      setCvs([]);
-    } finally {
-      setLoadingCvs(false);
-    }
-  };
+      if (!items.length) {
+        toast.info('Bạn chưa có CV. Vui lòng tạo/tải lên trong Hồ sơ trước khi ứng tuyển.');
+        // Sửa: đường dẫn có thật trong routes.jsx (thay vì '/cv-list' không tồn tại)
+        navigate('/profile');
+        return;
+      }
+      // Chọn CV mới nhất
+      items.sort((a, b) => {
+        const ta = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const tb = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return tb - ta;
+      });
+      const chosen = items[0];
+      const payload = { cvId: chosen.id };
 
-  const submitApply = async () => {
-    try {
-      setSubmitting(true);
-      const payload = {};
-      if (selectedCvId) payload.cvId = selectedCvId;
-      if (coverLetter?.trim()) payload.coverLetter = coverLetter.trim();
       await jobService.applyJob(id, payload);
       toast.success('Đã nộp ứng tuyển thành công');
-      setApplyOpen(false);
-      setCoverLetter('');
-      setSelectedCvId('');
+      setApplied(true);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Nộp ứng tuyển thất bại');
+      const msg = err?.response?.data?.message || 'Nộp ứng tuyển thất bại';
+      if (typeof msg === 'string' && /already applied/i.test(msg)) {
+        setApplied(true);
+        toast.info('Bạn đã nộp đơn cho công việc này trước đó');
+      } else {
+        toast.error(msg);
+      }
     } finally {
-      setSubmitting(false);
+      setApplying(false);
     }
   };
 
@@ -290,11 +311,9 @@ export default function JobDetail() {
     address: job.contactAddress || job.employer?.companyAddress || '',
   };
 
-  // Inner frame (khung mờ bên trong) dùng lặp lại
   const innerFrameCls =
     'rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08),inset_0_12px_30px_rgba(0,0,0,0.04),inset_0_-10px_24px_rgba(255,255,255,0.85)]';
 
-  // Soft panel (các ô con bên trong inner frame)
   const softPanelStyle = {
     background: '#fff',
     borderRadius: 12,
@@ -302,16 +321,18 @@ export default function JobDetail() {
       'inset 0 0 0 1px rgba(0,0,0,0.06), inset 0 8px 24px rgba(0,0,0,0.04), inset 0 -6px 16px rgba(255,255,255,0.7)',
   };
 
+  const isExpired =
+    job.deadline && new Date(job.deadline).getTime() < new Date().setHours(0, 0, 0, 0);
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto max-w-7xl px-4 grid grid-cols-12 gap-6">
         {/* Main */}
         <div className="col-span-12 lg:col-span-8">
-          {/* Card 2 lớp: lớp ngoài trắng + lớp trong (inner frame) chứa nội dung */}
           <div className="rounded-2xl bg-white p-2 shadow-[0_6px_18px_rgba(17,12,46,0.06)] mb-5">
             <div className={`${innerFrameCls} p-6`}>
               <div className="flex items-start gap-4">
-                {/* Logo: thêm inner shadow nhẹ để giống ô chìm */}
+                {/* Logo */}
                 <div className="w-24 h-24 min-w-[6rem] rounded-2xl bg-white overflow-hidden flex items-center justify-center shadow-[inset_0_2px_12px_rgba(0,0,0,0.07),inset_0_-2px_12px_rgba(255,255,255,0.8),inset_0_0_0_1px_rgba(0,0,0,0.06)]">
                   <img
                     src={getLogoUrl(job) || FALLBACK_LOGO}
@@ -351,20 +372,30 @@ export default function JobDetail() {
 
                     <div className="mt-2 inline-flex items-center gap-1.5">
                       <CalendarDays className="w-4 h-4 text-slate-500" />
-                      <span>Hết hạn: {job.deadline ? formatDate(job.deadline) : '-'}</span>
+                      <span>
+                        {isExpired ? 'Đã hết hạn' : `Hết hạn: ${job.deadline ? formatDate(job.deadline) : '-'}`}
+                      </span>
                     </div>
                   </div>
 
+                  {/* CTA */}
                   <div className="mt-4 flex items-center gap-3">
                     <button
-                      onClick={openApply}
-                      className="px-4 py-2 rounded-xl text-white font-medium shadow-sm bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300"
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyQuick(); }}
+                      disabled={applying || applied || isExpired}
+                      className={`px-4 py-2 rounded-xl text-white font-medium shadow-sm ${
+                        applied || isExpired
+                          ? 'bg-slate-400 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:opacity-95'
+                      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 disabled:opacity-70`}
                     >
-                      Nộp đơn ngay
+                      {applied ? 'Đã nộp đơn' : applying ? 'Đang nộp...' : 'Nộp đơn ngay'}
                     </button>
 
                     <button
-                      onClick={toggleSave}
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSave(); }}
                       disabled={saving}
                       className={`px-4 py-2 rounded-xl border ${
                         isSaved
@@ -374,7 +405,7 @@ export default function JobDetail() {
                     >
                       <span className="inline-flex items-center gap-1">
                         <Heart className="w-4 h-4" fill={isSaved ? 'currentColor' : 'none'} />
-                        {saving ? '...' : 'Lưu tin'}
+                        {saving ? '...' : isSaved ? 'Đã lưu' : 'Lưu tin'}
                       </span>
                     </button>
                   </div>
@@ -383,7 +414,7 @@ export default function JobDetail() {
             </div>
           </div>
 
-          {/* Tabs card: cũng dùng 2 lớp để có khung mờ bên trong */}
+          {/* Tabs card */}
           <div className="rounded-2xl bg-white p-2 shadow-[0_6px_18px_rgba(17,12,46,0.06)]">
             <div className={`${innerFrameCls}`}>
               {/* Tab bar */}
@@ -392,6 +423,7 @@ export default function JobDetail() {
                   const active = tab === key;
                   return (
                     <button
+                      type="button"
                       key={key}
                       onClick={() => setTab(key)}
                       className={`relative px-3 py-2 text-sm rounded-t-md transition-colors ${
@@ -613,7 +645,7 @@ export default function JobDetail() {
           </div>
         </div>
 
-        {/* Sidebar: Việc tương tự – cũng 2 lớp */}
+        {/* Sidebar: Việc tương tự */}
         <aside className="col-span-12 lg:col-span-4">
           <div className="rounded-2xl bg-white p-2 shadow-[0_6px_18px_rgba(17,12,46,0.06)]">
             <div className={`${innerFrameCls} p-4`}>
@@ -676,69 +708,6 @@ export default function JobDetail() {
           </div>
         </aside>
       </div>
-
-      {/* Modal Apply */}
-      {applyOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="rounded-2xl bg-white p-2 shadow-[0_8px_24px_rgba(17,12,46,0.12)] w-full max-w-lg">
-            <div className={`${innerFrameCls} p-6`}>
-              <h3 className="text-lg font-semibold mb-2">Ứng tuyển: {job.title}</h3>
-              <p className="text-sm text-slate-600 mb-4">Chọn CV để nộp và nhập thư giới thiệu (tùy chọn).</p>
-
-              <div className="mb-4">
-                <div className="font-medium mb-2">Chọn CV</div>
-                {loadingCvs ? (
-                  <div className="text-sm text-slate-500">Đang tải CV...</div>
-                ) : cvs.length === 0 ? (
-                  <div className="text-sm text-slate-500">
-                    Bạn chưa có CV nào. Hãy vào <Link to="/cv-list" className="text-fuchsia-600 underline">Danh sách CV</Link> để tải lên.
-                  </div>
-                ) : (
-                  <div className="max-h-40 overflow-auto rounded p-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] space-y-2 bg-white">
-                    {cvs.map(cv => (
-                      <label key={cv.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="radio"
-                          name="cv"
-                          value={cv.id}
-                          checked={selectedCvId === cv.id}
-                          onChange={() => setSelectedCvId(cv.id)}
-                        />
-                        <span className="text-slate-700">{cv.filename || cv.fileName || cv.candidateName || 'CV'}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <textarea
-                value={coverLetter}
-                onChange={(e) => setCoverLetter(e.target.value)}
-                rows={6}
-                placeholder="Thư giới thiệu..."
-                className="w-full rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-fuchsia-300 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),inset_0_4px_10px_rgba(0,0,0,0.03)] bg-white"
-              />
-
-              <div className="mt-4 flex justify-end gap-3">
-                <button
-                  onClick={() => setApplyOpen(false)}
-                  className="px-4 py-2 rounded-lg shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] text-slate-700 hover:bg-slate-50"
-                  disabled={submitting}
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={submitApply}
-                  className="px-4 py-2 rounded-lg bg-fuchsia-600 text-white hover:bg-fuchsia-700 disabled:opacity-60"
-                  disabled={submitting}
-                >
-                  {submitting ? 'Đang gửi...' : 'Gửi ứng tuyển'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
