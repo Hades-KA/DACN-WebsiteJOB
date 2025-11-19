@@ -1,3 +1,4 @@
+// server/app.js
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -5,6 +6,7 @@ const morgan = require('morgan');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 const { sequelize, initDatabase } = require('./src/config/database');
 
@@ -12,17 +14,23 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 /* ============ Security (helmet + CORS) ============ */
-// Helmet: cho phép nhúng tài nguyên khác origin (ảnh /uploads),
+// Cho phép nhúng tài nguyên cross-origin (ảnh /uploads),
 // tắt COEP để không chặn nhúng khi không cần.
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  crossOriginEmbedderPolicy: false,
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
 const defaultClientUrls = 'http://localhost:5175,http://127.0.0.1:5175';
-const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || defaultClientUrls)
+const allowedOrigins = (
+  process.env.CLIENT_URLS ||
+  process.env.CLIENT_URL ||
+  defaultClientUrls
+)
   .split(',')
-  .map(o => o.trim())
+  .map((o) => o.trim())
   .filter(Boolean);
 
 const corsOptions = {
@@ -38,31 +46,65 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 /* ============ Parsers, compression, log ============ */
-app.use(express.json({ limit: '10mb' }));
+// ĐÃ SỬA: Thêm strict: false để cho phép null/primitive values
+app.use(express.json({ limit: '10mb', strict: false }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined'));
 
-/* ============ Serve static uploads ============ */
+/* ============ Upload path ============ */
 const uploadRoot = process.env.UPLOAD_PATH
-  ? (path.isAbsolute(process.env.UPLOAD_PATH) ? process.env.UPLOAD_PATH : path.resolve(process.cwd(), process.env.UPLOAD_PATH))
+  ? path.isAbsolute(process.env.UPLOAD_PATH)
+    ? process.env.UPLOAD_PATH
+    : path.resolve(process.cwd(), process.env.UPLOAD_PATH)
   : path.resolve(process.cwd(), 'uploads');
 
-// Gắn header CORP cho /uploads để ảnh load cross-origin
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  // Cho phép FE dev truy cập ảnh; production có thể giới hạn theo allowedOrigins[0]
-  if (process.env.NODE_ENV === 'development') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  } else if (allowedOrigins.length) {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0]);
+/* ============ Serve static uploads (ĐẶT TRƯỚC TẤT CẢ ROUTES) ============ */
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    console.log('📁 [UPLOADS] Request:', req.method, req.url);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    // Cho phép FE dev truy cập ảnh; production có thể giới hạn theo allowedOrigins[0]
+    if (process.env.NODE_ENV === 'development') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else if (allowedOrigins.length) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0]);
+    }
+    next();
+  },
+  express.static(uploadRoot)
+);
+
+/* ============ Debug uploads ============ */
+app.get('/__debug/uploads', (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadRoot);
+    res.json({
+      uploadRoot,
+      exists: fs.existsSync(uploadRoot),
+      files,
+      count: files.length,
+      message: 'Debug: danh sách file trong thư mục uploads',
+    });
+  } catch (err) {
+    res.status(500).json({
+      uploadRoot,
+      exists: false,
+      error: err.message,
+    });
   }
-  next();
-}, express.static(uploadRoot));
+});
 
 /* ============ Health & DB test ============ */
 app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  res.status(200).json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    uploadRoot,
+  });
 });
 
 app.get('/test-db', async (_req, res) => {
@@ -70,7 +112,9 @@ app.get('/test-db', async (_req, res) => {
     await sequelize.authenticate();
     res.json({ message: 'Kết nối SQL Server thành công!', status: 'OK' });
   } catch (error) {
-    res.status(500).json({ message: 'Kết nối SQL Server thất bại', error: error.message });
+    res
+      .status(500)
+      .json({ message: 'Kết nối SQL Server thất bại', error: error.message });
   }
 });
 
@@ -88,16 +132,21 @@ app.use('/api/users', require('./src/routes/userRoutes'));
 app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 
-/* ============ Error handler & 404 ============ */
+// ✅ THÊM MỚI: Analytics routes cho Dashboard Báo cáo
+app.use('/api/analytics', require('./src/routes/analyticsRoutes'));
+
+/* ============ Error handler ============ */
 app.use((err, _req, res, _next) => {
-  console.error(err.stack);
+  console.error('❌ [ERROR]', err.stack);
   res.status(500).json({
     message: 'Có lỗi xảy ra!',
-    error: process.env.NODE_ENV === 'development' ? err.message : {}
+    error: process.env.NODE_ENV === 'development' ? err.message : {},
   });
 });
 
-app.use('*', (_req, res) => {
+/* ============ 404 handler (ĐẶT CUỐI CÙNG) ============ */
+app.use('*', (req, res) => {
+  console.log('⚠️  [404] Route không tồn tại:', req.method, req.originalUrl);
   res.status(404).json({ message: 'Đường dẫn không tồn tại' });
 });
 
@@ -110,6 +159,8 @@ const startServer = async () => {
       console.log(`📊 Kiểm tra sức khỏe: http://localhost:${PORT}/health`);
       console.log(`🌍 Môi trường: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📁 Uploads served at /uploads from: ${uploadRoot}`);
+      console.log(`🔍 Debug uploads: http://localhost:${PORT}/__debug/uploads`);
+      console.log(`📈 Analytics API: http://localhost:${PORT}/api/analytics/*`);
     });
   } catch (error) {
     console.error('❌ Server không khởi động được:', error);

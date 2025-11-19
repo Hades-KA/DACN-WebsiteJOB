@@ -11,18 +11,18 @@ const Job = sequelize.define('Job', {
   // Hiển thị tự do (text)
   salary: { type: DataTypes.STRING(100), allowNull: true },
   // Lọc theo band
-  salaryBand: { type: DataTypes.STRING(50), allowNull: true },         // 'Dưới 5 triệu' | '5-10 triệu' | '10-20 triệu' | 'Trên 20 triệu'
+  salaryBand: { type: DataTypes.STRING(50), allowNull: true },
 
   type: { type: DataTypes.ENUM('full-time', 'part-time', 'contract', 'intern'), allowNull: false, defaultValue: 'full-time' },
-  workMode: { type: DataTypes.STRING(20), allowNull: true },            // 'onsite' | 'hybrid' | 'remote'
+  workMode: { type: DataTypes.STRING(20), allowNull: true },
 
   // Hiển thị tự do (text)
   experience: { type: DataTypes.STRING(50), allowNull: true },
   // Lọc theo band
-  experienceBand: { type: DataTypes.STRING(50), allowNull: true },      // 'Dưới 1 năm' | '1-3 năm' | ...
+  experienceBand: { type: DataTypes.STRING(50), allowNull: true },
 
-  level: { type: DataTypes.STRING(50), allowNull: true },               // 'Thực tập sinh' | 'Nhân viên' | ...
-  education: { type: DataTypes.STRING(50), allowNull: true },           // 'THPT' | 'Cao đẳng' | ...
+  level: { type: DataTypes.STRING(50), allowNull: true },
+  education: { type: DataTypes.STRING(50), allowNull: true },
 
   description: { type: DataTypes.TEXT, allowNull: false, validate: { notEmpty: true, len: [1, 5000] } },
   requirements: { type: DataTypes.TEXT, allowNull: false, validate: { notEmpty: true, len: [1, 3000] } },
@@ -31,7 +31,7 @@ const Job = sequelize.define('Job', {
 
   skills: { type: DataTypes.JSON, allowNull: true, defaultValue: [] },
 
-  deadline: { type: DataTypes.DATEONLY, allowNull: true },              // hạn nộp
+  deadline: { type: DataTypes.DATEONLY, allowNull: true },
   headcount: { type: DataTypes.INTEGER, allowNull: true },
 
   // Liên hệ (override company)
@@ -50,6 +50,12 @@ const Job = sequelize.define('Job', {
   employerId: { type: DataTypes.UUID, allowNull: false, references: { model: 'users', key: 'id' } },
 
   jobCode: { type: DataTypes.STRING(50), allowNull: true },
+
+  // 🆕 4 TRƯỜNG MỚI CHO AI SCORING
+  jdText: { type: DataTypes.TEXT, allowNull: true },
+  mustHaveSkills: { type: DataTypes.TEXT, allowNull: true }, // JSON string
+  niceToHaveSkills: { type: DataTypes.TEXT, allowNull: true }, // JSON string
+  jdVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
 
   createdAt: { type: DataTypes.DATE, allowNull: true },
   updatedAt: { type: DataTypes.DATE, allowNull: true }

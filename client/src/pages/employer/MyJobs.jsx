@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api, { companyService, jobService } from '../../services/api';
 import { FiPlus, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import JobFormModal from '../../components/employer/JobFormModal';
 
 const PAGE_SIZE = 10;
 
@@ -10,7 +11,6 @@ const TABS = [
   { key: 'approved',   label: 'Đã duyệt' },   // isActive = true
   { key: 'locked',     label: 'Đã khóa' },    // isActive = false
   { key: 'pending',    label: 'Chờ duyệt' },  // để khớp giao diện (chưa có dữ liệu)
-  { key: 'violations', label: 'Vi phạm' },    // để khớp giao diện (chưa có dữ liệu)
 ];
 
 // Mã tin hiển thị
@@ -46,6 +46,10 @@ export default function MyJobs() {
   });
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState(null); // trạng thái khi bấm Xóa
+
+  // State cho modal
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingJob, setEditingJob] = useState(null);
 
   // Lấy user local
   const getLocalUser = () => {
@@ -97,7 +101,6 @@ export default function MyJobs() {
           itemsPerPage: PAGE_SIZE,
         };
 
-      // “Chờ duyệt/Vi phạm” để trống (khớp giao diện demo)
       const finalRows =
         tab === 'pending' || tab === 'violations' ? [] : (Array.isArray(data) ? data : []);
 
@@ -122,7 +125,7 @@ export default function MyJobs() {
 
   // Xóa (UI y chang video). Nếu DELETE bị chặn (FK/timeout) -> fallback đóng tin để demo không kẹt
   const handleDelete = async (job) => {
-    if (!window.confirm(`Xóa tin “${job.title}”? Hành động không thể hoàn tác.`)) return;
+    if (!window.confirm(`Xóa tin "${job.title}"? Hành động không thể hoàn tác.`)) return;
     try {
       setWorkingId(job.id);
       await jobService.deleteJob(job.id);    // cố xóa cứng
@@ -141,18 +144,30 @@ export default function MyJobs() {
     }
   };
 
+  // Mở modal tạo tin mới
+  const handleCreateNew = () => {
+    setEditingJob(null);
+    setModalOpen(true);
+  };
+
+  // Mở modal chỉnh sửa
+  const handleEdit = (job) => {
+    setEditingJob(job);
+    setModalOpen(true);
+  };
+
   return (
     <div className="relative">
       <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5">
         {/* Header */}
         <div className="px-8 py-4 border-b flex items-center justify-between">
-          <div className="text-[18px] font-semibold text-gray-900">Quản lý tin tuyển dụng</div>
-          <Link
-            to="/employer/jobs/new"
+          <div className="text-2xl font-semibold tracking-tight text-slate-900">Quản lý tin tuyển dụng</div>
+          <button
+            onClick={handleCreateNew}
             className="px-3.5 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
           >
             Tạo tin mới
-          </Link>
+          </button>
         </div>
 
         {/* Tabs */}
@@ -242,7 +257,7 @@ export default function MyJobs() {
                         </Link>
 
                         <button
-                          onClick={() => navigate(`/employer/jobs/new?editId=${j.id}`)}
+                          onClick={() => handleEdit(j)}
                           className="text-blue-600 hover:text-blue-700"
                           title="Chỉnh sửa"
                         >
@@ -293,13 +308,28 @@ export default function MyJobs() {
       </div>
 
       {/* Nút tạo tin nổi */}
-      <Link
-        to="/employer/jobs/new"
+      <button
+        onClick={handleCreateNew}
         className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-[#6D28D9] hover:bg-[#5B21B6] text-white flex items-center justify-center shadow-lg"
         title="Tạo tin mới"
       >
         <FiPlus />
-      </Link>
+      </button>
+
+      {/* Modal tạo/sửa tin */}
+      <JobFormModal
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          setEditingJob(null);
+        }}
+        job={editingJob}
+        onSuccess={() => {
+          setModalOpen(false);
+          setEditingJob(null);
+          load(page); // Reload danh sách
+        }}
+      />
     </div>
   );
 }

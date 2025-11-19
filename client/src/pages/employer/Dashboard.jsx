@@ -4,86 +4,103 @@ import {
   ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
   PieChart, Pie, Cell,
-  BarChart, Bar
+  BarChart, Bar, AreaChart, Area
 } from 'recharts';
 import StatCard from '../../components/employer/StatCard';
 import JobCard from '../../components/employer/JobCard';
-import api, { companyService, applicationService } from '../../services/api';
+import api, { companyService, applicationService, analyticsService } from '../../services/api';
 import { Link } from 'react-router-dom';
 
-// Slate theme palette
+// Theme
 const THEME = {
-  primary: '#2563EB',  // blue-600
-  success: '#22C55E',  // green-500
-  warn:    '#F59E0B',  // amber-500
-  danger:  '#EF4444',  // red-500
-  neutral: '#64748B',  // slate-500
+  primary: '#2563EB',
+  success: '#22C55E',
+  warn:    '#F59E0B',
+  danger:  '#EF4444',
+  neutral: '#64748B',
 };
-const COLORS = [THEME.primary, THEME.success, THEME.warn, THEME.danger, THEME.neutral];
+const COLORS = [THEME.primary, THEME.success, THEME.warn];
 
 const STATUS_LABELS = {
-  pending: 'Chờ duyệt',
-  reviewing: 'Đang xem',
-  shortlisted: 'Được chọn sơ bộ',
-  interviewed: 'Đã phỏng vấn',
-  accepted: 'Được nhận',
-  rejected: 'Bị từ chối',
+  pending: 'Chờ xử lý',
+  reviewing: 'Đang xem xét',
+  shortlisted: 'Sơ tuyển',
+  interviewed: 'Phỏng vấn',
+  accepted: 'Đã nhận',
 };
-const STATUS_ORDER = ['pending','reviewing','shortlisted','interviewed','accepted','rejected'];
+const STATUS_ORDER = ['pending','reviewing','shortlisted','interviewed','accepted']; // ẩn rejected
+
+// Helpers
+const toNum = (v) => Number(v || 0);
+const fmtDayLabel = (label) => {
+  // API trả 'YYYY-MM-DD' khi group theo ngày
+  if (!label) return '';
+  const parts = String(label).split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}`;
+  return label;
+};
 
 export default function EmployerDashboard() {
-  const [me, setMe] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const getCachedUser = () => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } };
-  const getEmployerId = (u) => u?.id || u?.userId || getCachedUser()?.id || getCachedUser()?.userId;
+  // Trend (theo ngày) – giống Reports
+  const [lastDays, setLastDays] = useState(28);
+  const [trends, setTrends] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
-        let u = getCachedUser();
-        try { const meRes = await api.get('/auth/me'); u = meRes.data?.user || meRes.data || u; } catch {}
-        setMe(u);
+        // user -> employerId đã được backend dựa vào token (không cần trong dashboard này)
+        const [jobsRes, appsRes] = await Promise.all([
+          // Nếu bạn muốn chỉ job của employer: companyService.getCompanyJobs(employerId)
+          companyService.getCompanies ? companyService.getCompanyJobs((JSON.parse(localStorage.getItem('user')||'{}')).id || '') : { data: { data: [] } },
+          applicationService.getApplications({}),
+        ]).catch(() => [{ data: { data: [] } }, { data: { data: [] } }]);
 
-        const employerId = getEmployerId(u);
-        if (employerId) {
-          const jobsRes = await companyService.getCompanyJobs(employerId);
-          setJobs(jobsRes.data?.data || jobsRes.data || []);
-        } else setJobs([]);
-
-        try {
-          const appsRes = await applicationService.getApplications({});
-          setApps(appsRes.data?.data || appsRes.data || []);
-        } catch { setApps([]); }
-      } finally { setLoading(false); }
+        setJobs(jobsRes?.data?.data || jobsRes?.data || []);
+        setApps(appsRes?.data?.data || appsRes?.data || []);
+      } finally {
+        setLoading(false);
+      }
     };
     load();
   }, []);
 
+  // Fetch trends từ analytics (đồng nhất với Reports)
+  useEffect(() => {
+    const fetchTrends = async () => {
+      setTrendLoading(true);
+      try {
+        const res = await analyticsService.getTrends({ days: lastDays });
+        setTrends(res?.data?.data || []);
+      } catch {
+        setTrends([]);
+      } finally {
+        setTrendLoading(false);
+      }
+    };
+    fetchTrends();
+  }, [lastDays]);
+
+  // KPI
   const activeJobs = useMemo(() => jobs.filter(j => j.isActive).length, [jobs]);
   const totalViews = useMemo(() => jobs.reduce((s, j) => s + (j.viewsCount || 0), 0), [jobs]);
   const newApplicants = useMemo(() => apps.length, [apps]);
-  const approvedCV = 0;
+  const approvedCV = useMemo(() => apps.filter(a => a.status === 'accepted').length, [apps]);
 
-  const monthKey = (d) => { const dt = new Date(d); return `T${(dt.getMonth() + 1)}`; };
-  const lineData = useMemo(() => {
-    const v = {}, a = {};
-    jobs.forEach(j => { const k = j.createdAt ? monthKey(j.createdAt) : 'T1'; v[k] = (v[k] || 0) + (j.viewsCount || 0); });
-    apps.forEach(x => { const k = x.createdAt ? monthKey(x.createdAt) : 'T1'; a[k] = (a[k] || 0) + 1; });
-    const keys = Array.from(new Set([...Object.keys(v), ...Object.keys(a)])).sort((x,y)=>Number(x.slice(1))-Number(y.slice(1)));
-    const arr = keys.map(k => ({ name: k, views: v[k] || 0, apply: a[k] || 0 }));
-    return arr.length ? arr : [
-      { name: 'T1', views: 160, apply: 40 },
-      { name: 'T2', views: 200, apply: 45 },
-      { name: 'T3', views: 180, apply: 35 },
-      { name: 'T4', views: 240, apply: 60 },
-      { name: 'T5', views: 220, apply: 50 },
-      { name: 'T6', views: 230, apply: 55 },
-    ];
-  }, [jobs, apps]);
+  // Xu hướng (đồng nhất Reports)
+  const trendData = useMemo(() => {
+    return (trends || []).map(t => ({
+      day: fmtDayLabel(t.month),              // month = nhãn nhóm theo ngày
+      applications: toNum(t.applications),    // bên trái
+      avgScore: toNum(t.avgScore),            // bên phải (%)
+    }));
+  }, [trends]);
 
+  // Pie: trạng thái tin tuyển dụng
   const pieData = useMemo(() => {
     const now = Date.now();
     let showing = 0, expired = 0, pending = 0;
@@ -100,9 +117,13 @@ export default function EmployerDashboard() {
     ];
   }, [jobs]);
 
+  // Bar: trạng thái ứng tuyển (ẩn rejected)
   const barData = useMemo(() => {
     const map = Object.fromEntries(STATUS_ORDER.map(k => [k, 0]));
-    apps.forEach(a => { map[a.status] = (map[a.status] || 0) + 1; });
+    apps.forEach(a => { 
+      const s = String(a.status || '').toLowerCase();
+      if (map[s] !== undefined) map[s] += 1;
+    });
     return STATUS_ORDER.map(k => ({ key: k, name: STATUS_LABELS[k], value: map[k] || 0 }));
   }, [apps]);
 
@@ -126,10 +147,7 @@ export default function EmployerDashboard() {
         </div>
         <Link
           to="/employer/jobs/new"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white shadow"
-          style={{ backgroundColor: THEME.primary }}
-          onMouseEnter={(e)=> e.currentTarget.style.backgroundColor = '#1D4ED8' }
-          onMouseLeave={(e)=> e.currentTarget.style.backgroundColor = THEME.primary }
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white shadow bg-blue-600 hover:bg-blue-700"
         >
           <FiPlus /> Đăng tin mới
         </Link>
@@ -138,30 +156,80 @@ export default function EmployerDashboard() {
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard title="Tin tuyển dụng đang đăng" value={activeJobs} icon={<FiBriefcase className="h-6 w-6" />} />
-        <StatCard title="Lượt xem tin" value={totalViews} icon={<FiEye className="h-6 w-6" />} />
+        <StatCard title="Lượt xem tin (tổng)" value={totalViews} icon={<FiEye className="h-6 w-6" />} />
         <StatCard title="Ứng viên mới" value={newApplicants} icon={<FiUsers className="h-6 w-6" />} />
-        <StatCard title="CV đã duyệt" value={approvedCV} icon={<FiCheckCircle className="h-6 w-6" />} />
+        <StatCard title="CV đã nhận" value={approvedCV} icon={<FiCheckCircle className="h-6 w-6" />} />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Xu hướng theo ngày: đồng nhất Reports */}
         <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4 lg:col-span-2">
-          <div className="font-medium mb-2">Thống kê lượt xem và ứng tuyển</div>
+          <div className="flex items-center justify-between">
+            <div className="font-medium mb-2">Xu hướng ứng tuyển (theo ngày)</div>
+            <div className="flex items-center gap-2 text-xs">
+              {[7,14,28].map(d => (
+                <button
+                  key={d}
+                  onClick={() => setLastDays(d)}
+                  className={`px-2 py-1 rounded border ${lastDays===d ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  {d} ngày
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={lineData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="views" stroke={THEME.primary} strokeWidth={2} dot={false} name="Lượt xem" />
-                <Line type="monotone" dataKey="apply" stroke={THEME.success} strokeWidth={2} dot={false} name="Lượt ứng tuyển" />
-              </LineChart>
-            </ResponsiveContainer>
+            {trendLoading ? (
+              <div className="h-full grid place-items-center text-gray-500 text-sm">Đang tải xu hướng…</div>
+            ) : trendData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorApply" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={THEME.success} stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor={THEME.success} stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={THEME.primary} stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor={THEME.primary} stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="day" />
+                  <YAxis yAxisId="left" allowDecimals={false} />
+                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} />
+                  <Tooltip />
+                  <Legend />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="applications"
+                    name="Số đơn/ngày"
+                    stroke={THEME.success}
+                    fill="url(#colorApply)"
+                    fillOpacity={1}
+                  />
+                  <Area
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="avgScore"
+                    name="Điểm AI TB (%)"
+                    stroke={THEME.primary}
+                    fill="url(#colorScore)"
+                    fillOpacity={1}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full grid place-items-center text-gray-500 text-sm">
+                Chưa có dữ liệu trong {lastDays} ngày qua
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Trạng thái tin tuyển dụng */}
         <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4">
           <div className="font-medium mb-2">Trạng thái tin tuyển dụng</div>
           <div className="h-64">
@@ -179,8 +247,9 @@ export default function EmployerDashboard() {
       </div>
 
       {/* Bar + Recent */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Trạng thái ứng tuyển */}
+        <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4 lg:col-span-2">
           <div className="font-medium mb-2">Trạng thái ứng tuyển</div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -195,6 +264,7 @@ export default function EmployerDashboard() {
           </div>
         </div>
 
+        {/* Hoạt động gần đây */}
         <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4">
           <div className="font-medium mb-2">Hoạt động gần đây</div>
           <ul className="space-y-3">
@@ -213,7 +283,7 @@ export default function EmployerDashboard() {
         </div>
       </div>
 
-      {/* Recent jobs */}
+      {/* Tin gần đây */}
       <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5">
         <div className="px-4 py-4 border-b">
           <div className="font-medium">Tin tuyển dụng gần đây</div>
@@ -228,7 +298,7 @@ export default function EmployerDashboard() {
         </div>
       </div>
 
-      {/* FAB (giữ màu tím nếu bạn thích; có thể đổi sang THEME.primary) */}
+      {/* FAB */}
       <Link to="/employer/jobs/new" className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-[#6D28D9] hover:bg-[#5B21B6] text-white flex items-center justify-center shadow-lg">
         <FiPlus />
       </Link>

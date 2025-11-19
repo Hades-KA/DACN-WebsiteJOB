@@ -1,3 +1,8 @@
+-- =====================================================
+-- HỆ THỐNG TUYỂN DỤNG - DATABASE SCHEMA
+-- Phiên bản: 2.0 (Bổ sung AI Scoring System)
+-- Cập nhật: [Ngày hiện tại]
+-- =====================================================
 
 -- 0. Tạo Database nếu chưa có
 ---------------------------------
@@ -72,6 +77,31 @@ BEGIN
 END
 GO
 
+-- PATCH: Thêm cột candidate profile mở rộng
+BEGIN TRY
+BEGIN TRAN;
+
+IF COL_LENGTH('dbo.users','level')           IS NULL ALTER TABLE dbo.users ADD [level] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','workType')        IS NULL ALTER TABLE dbo.users ADD [workType] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','degree')          IS NULL ALTER TABLE dbo.users ADD [degree] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','jobCategory')     IS NULL ALTER TABLE dbo.users ADD [jobCategory] NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.users','experienceBand')  IS NULL ALTER TABLE dbo.users ADD [experienceBand] NVARCHAR(50) NULL;
+IF COL_LENGTH('dbo.users','expectedSalary')  IS NULL ALTER TABLE dbo.users ADD [expectedSalary] INT NULL;
+IF COL_LENGTH('dbo.users','birthdate')       IS NULL ALTER TABLE dbo.users ADD [birthdate] DATE NULL;
+IF COL_LENGTH('dbo.users','address')         IS NULL ALTER TABLE dbo.users ADD [address] NVARCHAR(255) NULL;
+IF COL_LENGTH('dbo.users','gender')          IS NULL ALTER TABLE dbo.users ADD [gender] NVARCHAR(10) NULL;
+IF COL_LENGTH('dbo.users','maritalStatus')   IS NULL ALTER TABLE dbo.users ADD [maritalStatus] NVARCHAR(20) NULL;
+IF COL_LENGTH('dbo.users','jobAlertOn')      IS NULL ALTER TABLE dbo.users ADD [jobAlertOn] BIT NOT NULL DEFAULT 1;
+IF COL_LENGTH('dbo.users','careerGoals')     IS NULL ALTER TABLE dbo.users ADD [careerGoals] NVARCHAR(MAX) NULL;
+
+COMMIT TRAN;
+END TRY
+BEGIN CATCH
+IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+THROW;
+END CATCH;
+GO
+
 -- Index cho users
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Phone' AND object_id = OBJECT_ID('dbo.users'))
     CREATE INDEX [IDX_Phone] ON [dbo].[users] ([phone]);
@@ -140,6 +170,28 @@ IF COL_LENGTH('dbo.jobs','contactEmail') IS NULL    ALTER TABLE dbo.jobs ADD [co
 IF COL_LENGTH('dbo.jobs','contactPhone') IS NULL    ALTER TABLE dbo.jobs ADD [contactPhone] NVARCHAR(50);
 IF COL_LENGTH('dbo.jobs','contactAddress') IS NULL  ALTER TABLE dbo.jobs ADD [contactAddress] NVARCHAR(255);
 IF COL_LENGTH('dbo.jobs','jobCode') IS NULL         ALTER TABLE dbo.jobs ADD [jobCode] NVARCHAR(50);
+GO
+
+/* =====================================================
+   🆕 AI SCORING: Bổ sung cột JD cho bảng jobs
+   - jdText: Mô tả công việc chi tiết (dùng cho AI)
+   - mustHaveSkills: JSON array kỹ năng bắt buộc
+   - niceToHaveSkills: JSON array kỹ năng ưu tiên
+   - jdVersion: Version để track thay đổi JD
+   ===================================================== */
+IF COL_LENGTH('dbo.jobs','jdText') IS NULL
+    ALTER TABLE dbo.jobs ADD jdText NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.jobs','mustHaveSkills') IS NULL
+    ALTER TABLE dbo.jobs ADD mustHaveSkills NVARCHAR(MAX) NULL;   -- JSON: '["react","javascript"]'
+
+IF COL_LENGTH('dbo.jobs','niceToHaveSkills') IS NULL
+    ALTER TABLE dbo.jobs ADD niceToHaveSkills NVARCHAR(MAX) NULL; -- JSON: '["typescript","nextjs"]'
+
+IF COL_LENGTH('dbo.jobs','jdVersion') IS NULL
+BEGIN
+    ALTER TABLE dbo.jobs ADD jdVersion INT NOT NULL CONSTRAINT DF_Jobs_JdVersion DEFAULT(1);
+END
 GO
 
 -- Index cho jobs (filter/sort)
@@ -222,6 +274,107 @@ BEGIN
     );
     CREATE UNIQUE INDEX [UQ_Application_Job_Candidate] ON [dbo].[applications]([jobId],[candidateId]);
 END
+GO
+
+-- PATCH: Thêm các cột mới (snapshot + CV metadata)
+BEGIN TRY
+BEGIN TRAN;
+
+IF COL_LENGTH('dbo.applications','candidateSnapshot') IS NULL
+    ALTER TABLE dbo.applications ADD candidateSnapshot NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.applications','cvName') IS NULL
+    ALTER TABLE dbo.applications ADD cvName NVARCHAR(255) NULL;
+
+IF COL_LENGTH('dbo.applications','cvFilePath') IS NULL
+    ALTER TABLE dbo.applications ADD cvFilePath NVARCHAR(500) NULL;
+
+IF COL_LENGTH('dbo.applications','statusHistory') IS NULL
+    ALTER TABLE dbo.applications ADD statusHistory NVARCHAR(MAX) NULL;
+
+COMMIT TRAN;
+END TRY
+BEGIN CATCH
+IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+THROW;
+END CATCH;
+GO
+
+-- PATCH: Đặt DEFAULT cho statusHistory
+IF COL_LENGTH('dbo.applications','statusHistory') IS NOT NULL
+BEGIN
+    DECLARE @hasDefault bit = 0;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id
+        WHERE dc.parent_object_id = OBJECT_ID('dbo.applications') AND c.name = 'statusHistory'
+    )
+    SET @hasDefault = 1;
+
+    IF (@hasDefault = 0)
+        EXEC('ALTER TABLE dbo.applications ADD CONSTRAINT DF_Applications_StatusHistory DEFAULT ''[]'' FOR statusHistory');
+
+    EXEC('UPDATE dbo.applications SET statusHistory = ''[]'' WHERE statusHistory IS NULL');
+    EXEC('ALTER TABLE dbo.applications ALTER COLUMN statusHistory NVARCHAR(MAX) NOT NULL');
+END
+GO
+
+/* =====================================================
+   🆕 BẢNG MỚI: scores
+   Lưu kết quả chấm điểm AI cho từng application
+   - scoreTotal: Tổng điểm (0-100)
+   - matchedSkills: JSON array kỹ năng khớp
+   - missingSkills: JSON array kỹ năng thiếu (nice-to-have)
+   - missingMustHave: JSON array kỹ năng thiếu (bắt buộc)
+   - status: pending/success/error
+   ===================================================== */
+IF OBJECT_ID(N'dbo.scores', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.scores (
+        id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID() PRIMARY KEY,
+        applicationId UNIQUEIDENTIFIER NOT NULL,
+        scoreTotal INT NOT NULL DEFAULT 0,
+        matchedSkills NVARCHAR(MAX) NULL,       -- JSON array
+        missingSkills NVARCHAR(MAX) NULL,       -- JSON array (thiếu nice-to-have)
+        missingMustHave NVARCHAR(MAX) NULL,     -- JSON array (thiếu bắt buộc)
+        modelVersion NVARCHAR(50) NULL,
+        status NVARCHAR(20) NOT NULL DEFAULT 'success' CHECK (status IN ('pending','success','error')),
+        errorMessage NVARCHAR(1000) NULL,
+        generatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+        CONSTRAINT FK_Scores_Application FOREIGN KEY (applicationId) 
+            REFERENCES dbo.applications(id) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IDX_Scores_Application ON dbo.scores(applicationId);
+    CREATE INDEX IDX_Scores_GeneratedAt ON dbo.scores(generatedAt);
+    
+    PRINT '✅ Bảng scores đã được tạo';
+END
+ELSE
+    PRINT 'ℹ️ Bảng scores đã tồn tại';
+GO
+
+/* =====================================================
+   🆕 VIEW: v_latest_scores
+   Lấy điểm mới nhất của mỗi application (tối ưu query)
+   ===================================================== */
+IF OBJECT_ID(N'dbo.v_latest_scores', N'V') IS NOT NULL
+    DROP VIEW dbo.v_latest_scores;
+GO
+
+CREATE VIEW dbo.v_latest_scores AS
+SELECT s.*
+FROM (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY applicationId ORDER BY generatedAt DESC) AS rn
+    FROM dbo.scores
+) s
+WHERE s.rn = 1;
+GO
+
+PRINT '✅ View v_latest_scores đã được tạo';
 GO
 
 /* ===================== saved_jobs ===================== */
@@ -308,33 +461,6 @@ BEGIN
 END
 GO
 
-/* ===================== Admin duy nhất ===================== */
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_SingleAdmin' AND object_id = OBJECT_ID('[dbo].[users]'))
-BEGIN
-    CREATE UNIQUE INDEX [UQ_Users_SingleAdmin]
-    ON [dbo].[users] ([userType])
-    WHERE [userType] = 'admin';
-END
-GO
-
-/* ===================== Admin mặc định ===================== */
-DECLARE @NewAdminEmail NVARCHAR(255) = N'admin@jobhire.local';
-BEGIN TRY
-    BEGIN TRAN;
-    UPDATE [dbo].[users] SET [userType] = 'candidate' WHERE [userType] = 'admin' AND [email] <> @NewAdminEmail;
-    IF EXISTS (SELECT 1 FROM [dbo].[users] WHERE [email] = @NewAdminEmail)
-        UPDATE [dbo].[users] SET [userType] = 'admin' WHERE [email] = @NewAdminEmail;
-    ELSE
-        INSERT INTO [dbo].[users] ([name],[email],[password],[userType],[isVerified])
-        VALUES (N'System Admin', @NewAdminEmail, N'Admin@123', 'admin', 1);
-    COMMIT TRAN;
-END TRY
-BEGIN CATCH
-    IF @@TRANCOUNT > 0 ROLLBACK TRAN;
-    THROW;
-END CATCH;
-GO
-
 /* ============ SAFE PATCH BỔ SUNG CHO HIỆU NĂNG & DỌN TRIGGER CŨ =========== */
 BEGIN TRY
   BEGIN TRAN;
@@ -382,98 +508,85 @@ BEGIN CATCH
 END CATCH;
 GO
 
-/* ===================== Kiểm tra nhanh ===================== */
-PRINT '=== FK đang tham chiếu tới jobs ===';
+/* ===================== Admin duy nhất ===================== */
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_SingleAdmin' AND object_id = OBJECT_ID('[dbo].[users]'))
+BEGIN
+    CREATE UNIQUE INDEX [UQ_Users_SingleAdmin]
+    ON [dbo].[users] ([userType])
+    WHERE [userType] = 'admin';
+END
+GO
+
+/* ===================== Admin mặc định ===================== */
+DECLARE @NewAdminEmail NVARCHAR(255) = N'admin@jobhire.local';
+BEGIN TRY
+    BEGIN TRAN;
+    UPDATE [dbo].[users] SET [userType] = 'candidate' WHERE [userType] = 'admin' AND [email] <> @NewAdminEmail;
+    IF EXISTS (SELECT 1 FROM [dbo].[users] WHERE [email] = @NewAdminEmail)
+        UPDATE [dbo].[users] SET [userType] = 'admin' WHERE [email] = @NewAdminEmail;
+    ELSE
+        INSERT INTO [dbo].[users] ([name],[email],[password],[userType],[isVerified])
+        VALUES (N'System Admin', @NewAdminEmail, N'Admin@123', 'admin', 1);
+    COMMIT TRAN;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+    THROW;
+END CATCH;
+GO
+
+/* =====================================================
+   📊 KIỂM TRA KẾT QUẢ
+   ===================================================== */
+PRINT '';
+PRINT '========================================';
+PRINT '   KIỂM TRA CẤU TRÚC DATABASE';
+PRINT '========================================';
+PRINT '';
+
+-- Kiểm tra bảng Jobs (cột AI)
+PRINT '✅ Cột JD trong bảng jobs:';
+SELECT TOP 1 
+    id, title, jdText, mustHaveSkills, niceToHaveSkills, jdVersion 
+FROM dbo.jobs 
+ORDER BY createdAt DESC;
+
+-- Kiểm tra bảng Scores
+PRINT '';
+PRINT '✅ Bảng scores (lúc đầu trống):';
+SELECT TOP 5 * FROM dbo.scores ORDER BY generatedAt DESC;
+
+-- Kiểm tra View
+PRINT '';
+PRINT '✅ View v_latest_scores:';
+SELECT * FROM dbo.v_latest_scores;
+
+-- Kiểm tra FK tới jobs
+PRINT '';
+PRINT '✅ Foreign Keys tham chiếu tới jobs:';
 SELECT fk.name AS fk_name,
        OBJECT_NAME(fk.parent_object_id) AS child_table,
        fk.delete_referential_action_desc AS on_delete
 FROM sys.foreign_keys fk
 WHERE fk.referenced_object_id = OBJECT_ID('dbo.jobs');
 
-PRINT '=== Trigger trên bảng jobs (kỳ vọng: none) ===';
-SELECT name, type_desc, OBJECT_NAME(parent_id) AS table_name
-FROM sys.triggers
-WHERE parent_id = OBJECT_ID('dbo.jobs');
-
-PRINT '=== Admin hiện có ===';
+-- Kiểm tra Admin
+PRINT '';
+PRINT '✅ Admin hiện có:';
 SELECT [id],[email],[userType] FROM [dbo].[users] WHERE [userType] = 'admin';
+
+PRINT '';
+PRINT '========================================';
+PRINT '   🎉 HOÀN TẤT CẤU TRÚC DATABASE';
+PRINT '========================================';
+PRINT '';
+PRINT '📝 THAY ĐỔI MỚI (AI Scoring):';
+PRINT '   1. Bảng jobs: +4 cột (jdText, mustHaveSkills, niceToHaveSkills, jdVersion)';
+PRINT '   2. Bảng scores: MỚI (lưu kết quả chấm điểm AI)';
+PRINT '   3. View v_latest_scores: Lấy điểm mới nhất';
+PRINT '';
+PRINT '🔄 BƯỚC TIẾP THEO:';
+PRINT '   → Cấu hình backend Node.js (aiClient + scoreService)';
+PRINT '   → Tích hợp vào route Apply';
+PRINT '';
 GO
-
-
--- PATCH 1: Thêm các cột mới (snapshot + CV metadata)
-BEGIN TRY
-BEGIN TRAN;
-
-IF COL_LENGTH('dbo.applications','candidateSnapshot') IS NULL
-ALTER TABLE dbo.applications ADD candidateSnapshot NVARCHAR(MAX) NULL;
-
-IF COL_LENGTH('dbo.applications','cvName') IS NULL
-ALTER TABLE dbo.applications ADD cvName NVARCHAR(255) NULL;
-
-IF COL_LENGTH('dbo.applications','cvFilePath') IS NULL
-ALTER TABLE dbo.applications ADD cvFilePath NVARCHAR(500) NULL;
-
-IF COL_LENGTH('dbo.applications','statusHistory') IS NULL
-ALTER TABLE dbo.applications ADD statusHistory NVARCHAR(MAX) NULL;
-
-COMMIT TRAN;
-END TRY
-BEGIN CATCH
-IF @@TRANCOUNT > 0 ROLLBACK TRAN;
-THROW;
-END CATCH;
-GO
-
--- PATCH 2: Đặt DEFAULT, fill giá trị và chuyển NOT NULL cho statusHistory (dùng dynamic SQL)
-IF COL_LENGTH('dbo.applications','statusHistory') IS NOT NULL
-BEGIN
-DECLARE @hasDefault bit = 0;
-
-IF EXISTS (
-SELECT 1
-FROM sys.default_constraints dc
-JOIN sys.columns c
-ON c.object_id = dc.parent_object_id
-AND c.column_id = dc.parent_column_id
-WHERE dc.parent_object_id = OBJECT_ID('dbo.applications')
-AND c.name = 'statusHistory'
-)
-SET @hasDefault = 1;
-
-IF (@hasDefault = 0)
-EXEC('ALTER TABLE dbo.applications ADD CONSTRAINT DF_Applications_StatusHistory DEFAULT ''[]'' FOR statusHistory');
-
-EXEC('UPDATE dbo.applications SET statusHistory = ''[]'' WHERE statusHistory IS NULL');
-
-EXEC('ALTER TABLE dbo.applications ALTER COLUMN statusHistory NVARCHAR(MAX) NOT NULL');
-END
-GO
-
--- Kiểm tra nhanh
-SELECT TOP 1 candidateSnapshot, cvName, cvFilePath, statusHistory
-FROM dbo.applications;
-
-BEGIN TRY
-BEGIN TRAN;
-
-IF COL_LENGTH('dbo.users','level')           IS NULL ALTER TABLE dbo.users ADD [level] NVARCHAR(50) NULL;
-IF COL_LENGTH('dbo.users','workType')        IS NULL ALTER TABLE dbo.users ADD [workType] NVARCHAR(50) NULL;
-IF COL_LENGTH('dbo.users','degree')          IS NULL ALTER TABLE dbo.users ADD [degree] NVARCHAR(50) NULL;
-IF COL_LENGTH('dbo.users','industry')        IS NULL ALTER TABLE dbo.users ADD [industry] NVARCHAR(100) NULL;
-IF COL_LENGTH('dbo.users','jobCategory')     IS NULL ALTER TABLE dbo.users ADD [jobCategory] NVARCHAR(100) NULL;
-IF COL_LENGTH('dbo.users','experienceBand')  IS NULL ALTER TABLE dbo.users ADD [experienceBand] NVARCHAR(50) NULL;
-IF COL_LENGTH('dbo.users','expectedSalary')  IS NULL ALTER TABLE dbo.users ADD [expectedSalary] INT NULL;
-IF COL_LENGTH('dbo.users','birthdate')       IS NULL ALTER TABLE dbo.users ADD [birthdate] DATE NULL;
-IF COL_LENGTH('dbo.users','address')         IS NULL ALTER TABLE dbo.users ADD [address] NVARCHAR(255) NULL;
-IF COL_LENGTH('dbo.users','gender')          IS NULL ALTER TABLE dbo.users ADD [gender] NVARCHAR(10) NULL;
-IF COL_LENGTH('dbo.users','maritalStatus')   IS NULL ALTER TABLE dbo.users ADD [maritalStatus] NVARCHAR(20) NULL;
-IF COL_LENGTH('dbo.users','jobAlertOn')      IS NULL ALTER TABLE dbo.users ADD [jobAlertOn] BIT NOT NULL DEFAULT 1;
-IF COL_LENGTH('dbo.users','careerGoals')     IS NULL ALTER TABLE dbo.users ADD [careerGoals] NVARCHAR(MAX) NULL;
--- skills đã có: NVARCHAR(MAX), dùng để lưu JSON hoặc chuỗi
-
-COMMIT TRAN;
-END TRY
-BEGIN CATCH
-IF @@TRANCOUNT > 0 ROLLBACK TRAN;
-THROW;
-END CATCH;

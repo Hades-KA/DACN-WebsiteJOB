@@ -1,25 +1,24 @@
 // client/src/services/api.js
 import axios from 'axios';
 
-// Base URL
+// Base URL: tự tránh lặp /api/api
 const rawBase = import.meta?.env?.VITE_API_URL || 'http://localhost:5001';
-const apiBase = `${String(rawBase).replace(/\/$/, '')}/api`;
+const trimmed = String(rawBase).replace(/\/$/, '');
+const apiBase = /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
 
-// Axios instance
 const api = axios.create({
   baseURL: apiBase,
-  timeout: 15000,
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
+  // withCredentials: true, // bật nếu backend dùng cookie thay vì Bearer
 });
 
-// Helpers
 const getToken = () =>
   localStorage.getItem('token') ||
   localStorage.getItem('access_token') ||
   localStorage.getItem('accessToken') ||
   null;
 
-// Request interceptor: gắn Authorization
 api.interceptors.request.use(
   (config) => {
     const token = getToken();
@@ -29,13 +28,10 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor: log + xử lý 401
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error?.response?.status;
-
-    // NEW: cho phép tắt log khi là request "thử" (fallback)
     const silent =
       error?.config?.headers?.['x-silent-error'] === '1' ||
       error?.config?.headers?.['X-Silent-Error'] === '1' ||
@@ -62,7 +58,10 @@ api.interceptors.response.use(
   }
 );
 
-// Auth
+// Chuẩn hóa ID khi ghép vào URL
+const normId = (v) => encodeURIComponent(String(v ?? '').trim());
+
+// ========== Auth ==========
 export const authService = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
@@ -70,37 +69,45 @@ export const authService = {
   refreshToken: () => api.post('/auth/refresh'),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
+  verifyEmail: (token) => api.get(`/auth/verify-email?token=${encodeURIComponent(token)}`),
+  resendVerification: (email) => api.post('/auth/resend-verification', { email }),
 };
 
-// Job
+// ========== Jobs ==========
 export const jobService = {
   getAllJobs: (params = {}) => api.get('/jobs', { params }),
-  getJobById: (id) => api.get(`/jobs/${id}`),
+  getJobById: (id) => api.get(`/jobs/${normId(id)}`),
   createJob: (jobData) => api.post('/jobs', jobData),
-  updateJob: (id, jobData) => api.put(`/jobs/${id}`, jobData),
-  deleteJob: (id) => api.delete(`/jobs/${id}`),
+  updateJob: (id, jobData) => api.put(`/jobs/${normId(id)}`, jobData),
+  deleteJob: (id) => api.delete(`/jobs/${normId(id)}`),
   searchJobs: (searchParams) => api.get('/jobs/search', { params: searchParams }),
-  getJobsByCompany: (companyId) => api.get(`/jobs/company/${companyId}`),
-  applyJob: (jobId, applicationData) => api.post(`/jobs/${jobId}/apply`, applicationData),
-  getJobApplications: (jobId) => api.get(`/jobs/${jobId}/applications`),
-  updateJobStatus: (id, payload) => api.patch(`/jobs/${id}/status`, payload),
+  getJobsByCompany: (companyId) => api.get(`/jobs/company/${normId(companyId)}`),
+  applyJob: (jobId, applicationData) => api.post(`/jobs/${normId(jobId)}/apply`, applicationData),
+
+  // ĐÚNG với backend (jobRoutes)
+  getJobApplications: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
+
+  updateJobStatus: (id, payload) => api.patch(`/jobs/${normId(id)}/status`, payload),
+  
+  // THÊM MỚI: Rescore tất cả ứng viên của job
+  rescoreJobApplications: (jobId, body = {}) => api.post(`/jobs/${normId(jobId)}/rescore-applications`, body),
 };
 
-// CV
+// ========== CV ==========
 export const cvService = {
   getAllCVs: (params = {}) => api.get('/cvs', { params }),
-  getCVById: (id) => api.get(`/cvs/${id}`),
+  getCVById: (id) => api.get(`/cvs/${normId(id)}`),
   uploadCV: (formData) =>
     api.post('/cvs/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  updateCV: (id, cvData) => api.put(`/cvs/${id}`, cvData),
-  deleteCV: (id) => api.delete(`/cvs/${id}`),
+  updateCV: (id, cvData) => api.put(`/cvs/${normId(id)}`, cvData),
+  deleteCV: (id) => api.delete(`/cvs/${normId(id)}`),
   searchCVs: (searchParams) => api.get('/cvs/search', { params: searchParams }),
-  downloadCV: (id) => api.get(`/cvs/${id}/download`, { responseType: 'blob' }),
-  analyzeCV: (id) => api.post(`/cvs/${id}/analyze`),
-  getCVAnalysis: (id) => api.get(`/cvs/${id}/analysis`),
+  downloadCV: (id) => api.get(`/cvs/${normId(id)}/download`, { responseType: 'blob' }),
+  analyzeCV: (id) => api.post(`/cvs/${normId(id)}/analyze`),
+  getCVAnalysis: (id) => api.get(`/cvs/${normId(id)}/analysis`),
 };
 
-// User
+// ========== Users ==========
 export const userService = {
   getProfile: () => api.get('/users/profile'),
   updateProfile: (userData, config = {}) => api.patch('/users/profile', userData, config),
@@ -108,12 +115,12 @@ export const userService = {
   uploadAvatar: (formData) =>
     api.post('/users/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getUsers: (params = {}) => api.get('/users', { params }),
-  getUserById: (id) => api.get(`/users/${id}`),
-  updateUser: (id, userData) => api.put(`/users/${id}`, userData),
-  deleteUser: (id) => api.delete(`/users/${id}`),
+  getUserById: (id) => api.get(`/users/${normId(id)}`),
+  updateUser: (id, userData) => api.put(`/users/${normId(id)}`, userData),
+  deleteUser: (id) => api.delete(`/users/${normId(id)}`),
 };
 
-// Dashboard
+// ========== Dashboard ==========
 export const dashboardService = {
   getDashboardData: () => api.get('/dashboard'),
   getStats: () => api.get('/dashboard/stats'),
@@ -123,79 +130,90 @@ export const dashboardService = {
   getAnalytics: (period = '30d') => api.get(`/dashboard/analytics?period=${period}`),
 };
 
-// AI
+// ========== AI ==========
 export const aiService = {
-  analyzeCV: (cvId) => api.post(`/ai/analyze-cv/${cvId}`),
+  analyzeCV: (cvId) => api.post(`/ai/analyze-cv/${normId(cvId)}`),
   predictPerformance: (candidateId, jobId) => api.post('/ai/predict-performance', { candidateId, jobId }),
-  getJobRecommendations: (candidateId) => api.get(`/ai/job-recommendations/${candidateId}`),
-  getCandidateRecommendations: (jobId) => api.get(`/ai/candidate-recommendations/${jobId}`),
+  getJobRecommendations: (candidateId) => api.get(`/ai/job-recommendations/${normId(candidateId)}`),
+  getCandidateRecommendations: (jobId) => api.get(`/ai/candidate-recommendations/${normId(jobId)}`),
   analyzeJobMatch: (cvId, jobId) => api.post('/ai/analyze-job-match', { cvId, jobId }),
-  getSkillGaps: (candidateId, jobId) => api.get(`/ai/skill-gaps/${candidateId}/${jobId}`),
+  getSkillGaps: (candidateId, jobId) => api.get(`/ai/skill-gaps/${normId(candidateId)}/${normId(jobId)}`),
   generateJobDescription: (jobData) => api.post('/ai/generate-job-description', jobData),
-  optimizeJobPosting: (jobId) => api.post(`/ai/optimize-job-posting/${jobId}`),
+  optimizeJobPosting: (jobId) => api.post(`/ai/optimize-job-posting/${normId(jobId)}`),
 };
 
-// Company
+// ========== Companies ==========
 export const companyService = {
   getCompanies: (params = {}) => api.get('/companies', { params }),
-  getCompanyById: (id) => api.get(`/companies/${id}`),
+  getCompanyById: (id) => api.get(`/companies/${normId(id)}`),
   createCompany: (companyData) => api.post('/companies', companyData),
-  updateCompany: (id, companyData) => api.put(`/companies/${id}`, companyData),
-  deleteCompany: (id) => api.delete(`/companies/${id}`),
-  getCompanyJobs: (id, params = {}) => api.get(`/companies/${id}/jobs`, { params }),
-  getCompanyStats: (id) => api.get(`/companies/${id}/stats`),
+  updateCompany: (id, companyData) => api.put(`/companies/${normId(id)}`, companyData),
+  deleteCompany: (id) => api.delete(`/companies/${normId(id)}`),
+  getCompanyJobs: (id, params = {}) => api.get(`/companies/${normId(id)}/jobs`, { params }),
+  getCompanyStats: (id) => api.get(`/companies/${normId(id)}/stats`),
   uploadLogo: (id, file) => {
     const form = new FormData();
     form.append('logo', file);
-    return api.post(`/companies/${id}/logo`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post(`/companies/${normId(id)}/logo`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
 };
 
-// Application
+// ========== Applications ==========
 export const applicationService = {
   getApplications: (params = {}) => api.get('/applications', { params }),
-  getApplicationById: (id) => api.get(`/applications/${id}`),
+  getApplicationById: (id) => api.get(`/applications/${normId(id)}`),
   createApplication: (applicationData) => api.post('/applications', applicationData),
-  updateApplication: (id, applicationData) => api.put(`/applications/${id}`, applicationData),
-  deleteApplication: (id) => api.delete(`/applications/${id}`),
-  updateApplicationStatus: (id, status) => api.put(`/applications/${id}/status`, { status }),
-  getApplicationsByJob: (jobId) => api.get(`/applications/job/${jobId}`),
-  getApplicationsByCandidate: (candidateId) => api.get(`/applications/candidate/${candidateId}`),
+  updateApplication: (id, applicationData) => api.put(`/applications/${normId(id)}`, applicationData),
+  deleteApplication: (id) => api.delete(`/applications/${normId(id)}`),
+
+  // Tùy backend của bạn là PUT hay PATCH. Nếu backend là PATCH, đổi thành api.patch.
+  updateApplicationStatus: (id, status) => api.put(`/applications/${normId(id)}/status`, { status }),
+
+  // ĐIỀU CHỈNH QUAN TRỌNG: khớp backend /jobs/:id/applications
+  getApplicationsByJob: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
+
+  getApplicationsByCandidate: (candidateId) => api.get(`/applications/candidate/${normId(candidateId)}`),
   getMyApplications: (params = {}) => api.get('/applications/candidate/me', { params }),
 };
 
-// Notification
+// ========== Notifications ==========
 export const notificationService = {
   getNotifications: (params = {}) => api.get('/notifications', { params }),
-  markAsRead: (id) => api.put(`/notifications/${id}/read`),
+  markAsRead: (id) => api.put(`/notifications/${normId(id)}/read`),
   markAllAsRead: () => api.put('/notifications/read-all'),
-  deleteNotification: (id) => api.delete(`/notifications/${id}`),
+  deleteNotification: (id) => api.delete(`/notifications/${normId(id)}`),
   createNotification: (notificationData) => api.post('/notifications', notificationData),
 };
 
-// File
+// ========== Files ==========
 export const fileService = {
-  uploadFile: (formData) =>
-    api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  downloadFile: (id) => api.get(`/files/${id}/download`, { responseType: 'blob' }),
-  deleteFile: (id) => api.delete(`/files/${id}`),
-  getFileInfo: (id) => api.get(`/files/${id}`),
+  uploadFile: (formData) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  downloadFile: (id) => api.get(`/files/${normId(id)}/download`, { responseType: 'blob' }),
+  deleteFile: (id) => api.delete(`/files/${normId(id)}`),
+  getFileInfo: (id) => api.get(`/files/${normId(id)}`),
 };
 
-// Admin
+// ========== Admin ==========
 export const adminService = {
   listUsers: (params = {}) => api.get('/admin/users', { params }),
-  updateUserRole: (id, userType) => api.patch(`/admin/users/${id}/role`, { userType }),
-  updateUserStatus: (id, isActive) => api.patch(`/admin/users/${id}/status`, { isActive }),
-  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  updateUserRole: (id, userType) => api.patch(`/admin/users/${normId(id)}/role`, { userType }),
+  updateUserStatus: (id, isActive) => api.patch(`/admin/users/${normId(id)}/status`, { isActive }),
+  deleteUser: (id) => api.delete(`/admin/users/${normId(id)}`),
   listJobs: (params = {}) => api.get('/admin/jobs', { params }),
-  updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${id}/status`, { isActive }),
-  updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${id}/featured`, { isFeatured }),
+  updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${normId(id)}/status`, { isActive }),
+  updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${normId(id)}/featured`, { isFeatured }),
   listCompanies: (params = {}) => api.get('/admin/companies', { params }),
-  updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${id}/status`, { isActive }),
+  updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${normId(id)}/status`, { isActive }),
   getStats: () => api.get('/admin/stats'),
 };
 
+// ========== Analytics (MỚI - CHO DASHBOARD BÁO CÁO) ==========
+export const analyticsService = {
+  getOverview: () => api.get('/analytics/overview'),
+  getAIPerformance: () => api.get('/analytics/ai-performance'),
+  getFunnel: () => api.get('/analytics/funnel'),
+  // Sửa: nhận object params (days hoặc months)
+  getTrends: (params = {}) => api.get('/analytics/trends', { params }),
+  getTopJobs: () => api.get('/analytics/top-jobs'),
+};
 export default api;

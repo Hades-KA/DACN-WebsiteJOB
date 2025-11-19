@@ -10,13 +10,18 @@ import JobDetail from './pages/JobDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 
+// Trang Auth mới
+import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
+import VerifyEmail from './pages/auth/VerifyEmail';
+
 // Trang Ngành nghề/Địa điểm (list)
 import Jobs from './pages/Jobs';
 
 // ===== Ứng viên (Candidate) =====
 import ProfileLayout from './pages/profile/ProfileLayout';
 import ProfileOverview from './pages/profile/Overview';
-import MyProfile from './pages/profile/MyProfile'; // NEW: Trang “Hồ Sơ Của Tôi”
+import MyProfile from './pages/profile/MyProfile'; // NEW: Trang "Hồ Sơ Của Tôi"
 import MyApplications from './pages/MyApplications';
 import SavedJobs from './pages/SavedJobs';
 
@@ -29,6 +34,7 @@ import JobPost from './pages/JobPost';
 import CompanyProfile from './pages/employer/CompanyProfile';
 import EmployerCVs from './pages/employer/CVManagement';
 import EmployerCandidates from './pages/employer/Candidates';
+import EmployerReports from './pages/employer/Reports'; 
 
 // ===== Quản trị viên (Admin) =====
 import AdminLayout from './pages/admin/AdminLayout';
@@ -91,7 +97,11 @@ function Shell() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isEmployerRoute = location.pathname.startsWith('/employer');
   const isAuthPage =
-    location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
+    location.pathname.startsWith('/login') || 
+    location.pathname.startsWith('/register') ||
+    location.pathname.startsWith('/forgot-password') ||
+    location.pathname.startsWith('/reset-password') ||
+    location.pathname.startsWith('/verify-email');
 
   const hideHeaderFooter = isAuthPage || isAdminRoute || isEmployerRoute;
 
@@ -110,6 +120,11 @@ function Shell() {
 
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+          
+          {/* Auth routes mới */}
+          <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+          <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
+          <Route path="/verify-email" element={<PublicRoute><VerifyEmail /></PublicRoute>} />
 
           {/* ===== Candidate ===== */}
           <Route
@@ -120,8 +135,6 @@ function Shell() {
 
             {/* Hồ sơ của tôi */}
             <Route path="myprofile" element={<MyProfile />} />
-
-            {/* Không còn Personal nữa */}
 
             <Route
               path="my-applications"
@@ -167,7 +180,8 @@ function Shell() {
             <Route path="recruitment" element={<div className="p-4">Tuyển dụng (đang phát triển)</div>} />
             <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<EmployerCandidates />} />
-            <Route path="reports" element={<div className="p-4">Báo cáo & Thống kê (đang phát triển)</div>} />
+            {/* ✅ SỬA: Thay placeholder bằng component thật */}
+            <Route path="reports" element={<EmployerReports />} />
           </Route>
 
           {/* ===== Admin ===== */}
