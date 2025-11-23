@@ -3,7 +3,6 @@ const { Job, User, Application, CV, sequelize } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 
-// Helpers
 function mapTypeToEn(input) {
   if (!input) return input;
   const k = String(input).trim().toLowerCase();
@@ -101,7 +100,21 @@ async function getAllJobs(req, res) {
 
     const { count, rows: jobs } = await Job.findAndCountAll({
       where: whereClause,
-      include: [{ model: User, as: 'employer', attributes: ['id', 'name', 'company', 'email', 'phone', 'logoUrl', 'companyAddress'], required: false }],
+      attributes: [
+        'id','title','company','location','workAddress', // ← THÊM workAddress
+        'salary','salaryBand','type','workMode','experience','experienceBand','level','education',
+        'description','requirements','benefits','category','skills','deadline','headcount',
+        'contactName','contactEmail','contactPhone','contactAddress',
+        'isActive','isFeatured','applicationsCount','viewsCount',
+        'employerId','jobCode','jdText','mustHaveSkills','niceToHaveSkills','jdVersion',
+        'createdAt','updatedAt'
+      ],
+      include: [{
+        model: User,
+        as: 'employer',
+        attributes: ['id','name','company','email','phone','logoUrl','companyAddress'],
+        required: false
+      }],
       order,
       limit: limitNum,
       offset,
@@ -131,7 +144,22 @@ async function getJobById(req, res) {
 
     const job = await Job.unscoped().findByPk(id, {
       paranoid: false,
-      include: [{ model: User, as: 'employer', attributes: ['id', 'name', 'company', 'email', 'phone', 'logoUrl', 'companyAddress'], required: false, paranoid: false }],
+      attributes: [
+        'id','title','company','location','workAddress', // ← THÊM
+        'salary','salaryBand','type','workMode','experience','experienceBand','level','education',
+        'description','requirements','benefits','category','skills','deadline','headcount',
+        'contactName','contactEmail','contactPhone','contactAddress',
+        'isActive','isFeatured','applicationsCount','viewsCount',
+        'employerId','jobCode','jdText','mustHaveSkills','niceToHaveSkills','jdVersion',
+        'createdAt','updatedAt'
+      ],
+      include: [{
+        model: User,
+        as: 'employer',
+        attributes: ['id','name','company','email','phone','logoUrl','companyAddress','companyWebsite'],
+        required: false,
+        paranoid: false
+      }],
       logging: console.log,
     });
 
@@ -179,8 +207,8 @@ async function getJobApplications(req, res) {
     const { count, rows } = await Application.findAndCountAll({
       where: whereClause,
       include: [
-        { model: User, as: 'candidate', attributes: ['id', 'name', 'email', 'phone', 'location', 'address', 'position', 'level', 'workType', 'degree', 'industry', 'jobCategory', 'experienceBand', 'expectedSalary', 'birthdate', 'gender', 'maritalStatus', 'skills', 'careerGoals', 'avatar', 'cvUrl', 'cvName'], required: false },
-        { model: CV, as: 'cv', attributes: ['id', 'fileName', 'filePath'], required: false },
+        { model: User, as: 'candidate', attributes: ['id','name','email','phone','location','address','position','level','workType','degree','industry','jobCategory','experienceBand','expectedSalary','birthdate','gender','maritalStatus','skills','careerGoals','avatar','cvUrl','cvName'], required: false },
+        { model: CV, as: 'cv', attributes: ['id','fileName','filePath'], required: false },
       ],
       order: [['createdAt', 'DESC']],
       limit: limitNum,
@@ -223,7 +251,13 @@ async function createJob(req, res) {
     if (!errors.isEmpty()) return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
 
     const employerId = req.user.userId || req.user.id;
-    const { title, company, location, type, salary, experience, description, requirements, benefits, category, skills, deadline, level, education, experienceBand, salaryBand, workMode, headcount, contactName, contactEmail, contactPhone, contactAddress, jobCode, jdText, mustHaveSkills, niceToHaveSkills } = req.body;
+    const {
+      title, company, location, type, salary, experience, description, requirements, benefits, category, skills,
+      deadline, level, education, experienceBand, salaryBand, workMode, headcount,
+      contactName, contactEmail, contactPhone, contactAddress, jobCode,
+      jdText, mustHaveSkills, niceToHaveSkills,
+      workAddress // ← NHẬN TỪ BODY
+    } = req.body;
 
     let skillsJson = skills;
     if (typeof skills === 'string') { try { skillsJson = JSON.parse(skills); } catch { skillsJson = skills; } }
@@ -247,6 +281,7 @@ async function createJob(req, res) {
       jobCode: jobCode || null,
       jdText: jdText || null, mustHaveSkills: mustHaveJson || null, niceToHaveSkills: niceToHaveJson || null,
       jdVersion: 1, isActive: true, isFeatured: false, viewsCount: 0, applicationsCount: 0,
+      workAddress: workAddress || null // ← LƯU
     });
 
     console.log(`✅ [Create Job] Job created: ${job.id} - ${job.title}`);
@@ -269,7 +304,13 @@ async function updateJob(req, res) {
     const job = await Job.findOne({ where: { id, employerId } });
     if (!job) return res.status(404).json({ message: 'Job not found or no permission' });
 
-    const { title, company, location, type, salary, experience, description, requirements, benefits, category, skills, deadline, level, education, experienceBand, salaryBand, workMode, headcount, contactName, contactEmail, contactPhone, contactAddress, jobCode, jdText, mustHaveSkills, niceToHaveSkills } = req.body;
+    const {
+      title, company, location, type, salary, experience, description, requirements, benefits, category, skills,
+      deadline, level, education, experienceBand, salaryBand, workMode, headcount,
+      contactName, contactEmail, contactPhone, contactAddress, jobCode,
+      jdText, mustHaveSkills, niceToHaveSkills,
+      workAddress // ← NHẬN TỪ BODY
+    } = req.body;
 
     const updateData = {};
     if (title !== undefined) updateData.title = title;
@@ -305,6 +346,9 @@ async function updateJob(req, res) {
     if (jdText !== undefined) updateData.jdText = jdText;
     if (mustHaveSkills !== undefined) updateData.mustHaveSkills = Array.isArray(mustHaveSkills) ? JSON.stringify(mustHaveSkills) : mustHaveSkills;
     if (niceToHaveSkills !== undefined) updateData.niceToHaveSkills = Array.isArray(niceToHaveSkills) ? JSON.stringify(niceToHaveSkills) : niceToHaveSkills;
+
+    // ← LƯU ĐỊA CHỈ CỤ THỂ
+    if (workAddress !== undefined) updateData.workAddress = workAddress || null;
 
     if (jdText !== undefined || mustHaveSkills !== undefined || niceToHaveSkills !== undefined) {
       updateData.jdVersion = (job.jdVersion || 1) + 1;

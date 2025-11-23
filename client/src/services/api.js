@@ -10,7 +10,6 @@ const api = axios.create({
   baseURL: apiBase,
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
-  // withCredentials: true, // bật nếu backend dùng cookie thay vì Bearer
 });
 
 const getToken = () =>
@@ -83,13 +82,8 @@ export const jobService = {
   searchJobs: (searchParams) => api.get('/jobs/search', { params: searchParams }),
   getJobsByCompany: (companyId) => api.get(`/jobs/company/${normId(companyId)}`),
   applyJob: (jobId, applicationData) => api.post(`/jobs/${normId(jobId)}/apply`, applicationData),
-
-  // ĐÚNG với backend (jobRoutes)
   getJobApplications: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
-
   updateJobStatus: (id, payload) => api.patch(`/jobs/${normId(id)}/status`, payload),
-  
-  // THÊM MỚI: Rescore tất cả ứng viên của job
   rescoreJobApplications: (jobId, body = {}) => api.post(`/jobs/${normId(jobId)}/rescore-applications`, body),
 };
 
@@ -165,13 +159,8 @@ export const applicationService = {
   createApplication: (applicationData) => api.post('/applications', applicationData),
   updateApplication: (id, applicationData) => api.put(`/applications/${normId(id)}`, applicationData),
   deleteApplication: (id) => api.delete(`/applications/${normId(id)}`),
-
-  // Tùy backend của bạn là PUT hay PATCH. Nếu backend là PATCH, đổi thành api.patch.
   updateApplicationStatus: (id, status) => api.put(`/applications/${normId(id)}/status`, { status }),
-
-  // ĐIỀU CHỈNH QUAN TRỌNG: khớp backend /jobs/:id/applications
   getApplicationsByJob: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
-
   getApplicationsByCandidate: (candidateId) => api.get(`/applications/candidate/${normId(candidateId)}`),
   getMyApplications: (params = {}) => api.get('/applications/candidate/me', { params }),
 };
@@ -195,25 +184,43 @@ export const fileService = {
 
 // ========== Admin ==========
 export const adminService = {
+  // Users
   listUsers: (params = {}) => api.get('/admin/users', { params }),
   updateUserRole: (id, userType) => api.patch(`/admin/users/${normId(id)}/role`, { userType }),
   updateUserStatus: (id, isActive) => api.patch(`/admin/users/${normId(id)}/status`, { isActive }),
-  deleteUser: (id) => api.delete(`/admin/users/${normId(id)}`),
+  blockUser: (id, reason) => api.patch(`/admin/users/${normId(id)}/block`, { reason }),
+  unblockUser: (id) => api.patch(`/admin/users/${normId(id)}/unblock`),
+
+  // Jobs
   listJobs: (params = {}) => api.get('/admin/jobs', { params }),
   updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${normId(id)}/status`, { isActive }),
   updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${normId(id)}/featured`, { isFeatured }),
+
+  // Companies
   listCompanies: (params = {}) => api.get('/admin/companies', { params }),
   updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${normId(id)}/status`, { isActive }),
+  getCompanyById: (id) => api.get(`/admin/companies/${normId(id)}`), // ✅ thêm để dùng cho CompanyDetail
+
+  // Stats & Activities
   getStats: () => api.get('/admin/stats'),
+  getActivities: (params = {}) => api.get('/admin/activities', { params }),
+
+  // Applications
+  getApplications: (params = {}) => api.get('/admin/applications', { params }),
+  getApplicationById: (id) => api.get(`/admin/applications/${normId(id)}`),
+
+  // Analytics
+  getTrends: (params = {}) => api.get('/analytics/trends', { params }),
+  getScoreDistribution: () => api.get('/analytics/score-distribution'),
 };
 
-// ========== Analytics (MỚI - CHO DASHBOARD BÁO CÁO) ==========
+// ========== Analytics ==========
 export const analyticsService = {
   getOverview: () => api.get('/analytics/overview'),
   getAIPerformance: () => api.get('/analytics/ai-performance'),
   getFunnel: () => api.get('/analytics/funnel'),
-  // Sửa: nhận object params (days hoặc months)
   getTrends: (params = {}) => api.get('/analytics/trends', { params }),
   getTopJobs: () => api.get('/analytics/top-jobs'),
 };
+
 export default api;

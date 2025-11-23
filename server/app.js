@@ -127,17 +127,14 @@ app.use('/api/applications', require('./src/routes/applicationRoutes'));
 app.use('/api/cvs', require('./src/routes/cvRoutes'));
 app.use('/api/notifications', require('./src/routes/notificationRoutes'));
 app.use('/api/files', require('./src/routes/fileRoutes'));
-app.use('/api/ai', require('./src/routes/aiRoutes'));
 app.use('/api/users', require('./src/routes/userRoutes'));
 app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
-
-// ✅ THÊM MỚI: Analytics routes cho Dashboard Báo cáo
 app.use('/api/analytics', require('./src/routes/analyticsRoutes'));
 
 /* ============ Error handler ============ */
 app.use((err, _req, res, _next) => {
-  console.error('❌ [ERROR]', err.stack);
+  console.error(' [ERROR]', err.stack);
   res.status(500).json({
     message: 'Có lỗi xảy ra!',
     error: process.env.NODE_ENV === 'development' ? err.message : {},

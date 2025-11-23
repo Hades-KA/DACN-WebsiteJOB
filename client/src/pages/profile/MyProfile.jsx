@@ -407,12 +407,20 @@ export default function MyProfile() {
     await loadProfile();
   };
 
-  // Nút “+ Thêm…”: nếu đã có mục trước đó -> mở modal với mục gần nhất để chỉnh sửa
+  // Nút "+ Thêm…": nếu đã có mục trước đó -> mở modal với mục gần nhất để chỉnh sửa
   const handleOpenAddExperience = () => {
     const last = workExperiences?.[workExperiences.length - 1];
     if (last) setEditingExperience(last);
     else setEditingExperience(null);
     setOpenWorkExp(true);
+  };
+
+  // Handler mở modal Kỹ năng (ngăn event bị chặn)
+  const handleOpenSkills = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[DEBUG] click + Thêm kỹ năng');
+    setOpenSkills(true);
   };
 
   const fileNameForType = cvFile?.name || cvFile?.url || '';
@@ -547,7 +555,11 @@ export default function MyProfile() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-[15px] font-semibold text-gray-900">Kỹ Năng</h2>
-          <button type="button" onClick={() => setOpenSkills(true)} className="text-sm text-blue-600 hover:text-blue-700">
+          <button
+            type="button"
+            onClick={handleOpenSkills}
+            className="text-sm text-blue-600 hover:text-blue-700 relative z-[60] pointer-events-auto"
+          >
             + Thêm kỹ năng
           </button>
         </div>
@@ -588,7 +600,7 @@ export default function MyProfile() {
             onDragLeave={onDragLeave}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`cursor-pointer rounded-lg border-2 p-8 text-center transition
+            className={`relative z-0 cursor-pointer rounded-lg border-2 p-8 text-center transition
               ${dragActive ? 'border-blue-400 bg-blue-50' : 'border-dashed border-gray-300 bg-gray-50 hover:border-blue-300'}`}
           >
             <div className="flex flex-col items-center">
@@ -634,7 +646,7 @@ export default function MyProfile() {
           {cvFile?.url && !pendingCv && !isPdf(fileNameForType) && isDoc(fileNameForType) && (
             <div className="border rounded-lg overflow-hidden">
               <iframe title="CV Preview (DOC/DOCX)" src={getOfficeViewerUrl(cvFile.url)} className="w-full" style={{ height: '60vh' }} />
-              <p className="mt-2 text-xs text-gray-500">Nếu không xem được trực tiếp (đặc biệt trên localhost), hãy dùng “Mở tab”.</p>
+              <p className="mt-2 text-xs text-gray-500">Nếu không xem được trực tiếp (đặc biệt trên localhost), hãy dùng "Mở tab".</p>
             </div>
           )}
 
@@ -645,7 +657,7 @@ export default function MyProfile() {
               <div className="flex-1">
                 <div className="font-medium">Bạn vừa chọn file mới (chưa lưu)</div>
                 <div className="text-sm">{pendingCv.name} • {(pendingCv.size / 1024 / 1024).toFixed(2)} MB</div>
-                <div className="text-xs mt-1 text-amber-700">Nhấn “Lưu CV” để cập nhật, hoặc “Hủy” để giữ CV cũ.</div>
+                <div className="text-xs mt-1 text-amber-700">Nhấn "Lưu CV" để cập nhật, hoặc "Hủy" để giữ CV cũ.</div>
               </div>
             </div>
           )}

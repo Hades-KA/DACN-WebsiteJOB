@@ -7,8 +7,6 @@ import {
   Search, ChevronLeft, ChevronRight, Award
 } from 'lucide-react';
 
-/* Helpers: chuẩn hoá URL tuyệt đối cho filePath/url tải CV
-   - Nếu VITE_API_URL có /api ở cuối, bỏ /api để dùng cho file tĩnh */
 const API_ROOT = String(import.meta?.env?.VITE_API_URL || 'http://localhost:5001')
   .replace(/\/$/, '')
   .replace(/\/api$/i, '');
@@ -19,16 +17,12 @@ const toAbsoluteUrl = (u) => {
   return `${API_ROOT}${u.startsWith('/') ? '' : '/'}${u}`;
 };
 
-/* Cho phép cấu hình endpoint lấy "full profile" qua ENV.
-   Ví dụ: VITE_USER_DETAIL_PATHS=candidates hoặc "users,candidates"
-   Mặc định: [] (không gọi endpoint nào) → KHÔNG có 404 */
 const PROFILE_PATHS = (() => {
   const raw = import.meta?.env?.VITE_USER_DETAIL_PATHS;
   if (!raw) return [];
   return String(raw).split(',').map(s => s.trim()).filter(Boolean);
 })();
 
-/* Bộ lọc & map trạng thái */
 const STATUS_FILTERS = [
   { value: 'all',       label: 'Tất cả trạng thái' },
   { value: 'new',       label: 'Mới' },
@@ -49,7 +43,6 @@ const mapStatus = (k) => ({
   rejected: 'Từ chối',
 }[k] || k);
 
-/* ====== Chuẩn hoá skills => mảng chuỗi ====== */
 const levelVi = (lv) => (
   lv === 'basic' ? 'Cơ bản' :
   lv === 'intermediate' ? 'Trung cấp' :
@@ -91,7 +84,6 @@ const parseSkills = (skills) => {
   return [];
 };
 
-/* Parse deep JSON để xử lý double-encoded */
 function parseListDeep(raw) {
   if (raw == null) return [];
   let v = raw;
@@ -109,7 +101,6 @@ function parseListDeep(raw) {
   return Array.isArray(v) ? v : [];
 }
 
-/* ====== Format helpers ====== */
 const fmtDateTime = (d) => {
   if (!d) return '';
   const dt = new Date(d);
@@ -162,8 +153,6 @@ const maritalVi = (m) => {
 
 const firstOf = (...vals) => vals.find(v => v !== undefined && v !== null && String(v).trim() !== '');
 
-/* ================================================================= */
-
 export default function EmployerCVs() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -178,7 +167,6 @@ export default function EmployerCVs() {
   const [active, setActive] = useState(null);
   const [updating, setUpdating] = useState(false);
 
-  // Load tất cả đơn (server lọc theo employer từ token)
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -256,7 +244,6 @@ export default function EmployerCVs() {
     load();
   }, []);
 
-  // Load điểm AI cho tất cả applications
   const loadScores = async (applications) => {
     setLoadingScores(true);
     try {
@@ -294,11 +281,9 @@ export default function EmployerCVs() {
     }
   };
 
-  // ✅ LỌC CHỈ ỨNG VIÊN ≥50% VÀ CHƯA ACCEPTED/INTERVIEWED/HIRED
   const matched = useMemo(() => {
     const result = items.filter(it => {
-      // ✅ LOẠI TRỪ ỨNG VIÊN ĐÃ ACCEPTED, INTERVIEWED, HIRED
-      if (['accepted', 'interviewed', 'hired'].includes(it.status)) return false;
+      if (['shortlisted', 'interviewed', 'accepted'].includes(it.status)) return false;
       
       if (!it.aiScore) return false;
       const score = Number(it.aiScore.scoreTotal || 0);
@@ -309,7 +294,6 @@ export default function EmployerCVs() {
     return result;
   }, [items]);
 
-  // LỌC THEO TRẠNG THÁI + TÌM KIẾM + SẮP XẾP THEO ĐIỂM GIẢM DẦN
   const filtered = useMemo(() => {
     const q = (query || '').toLowerCase().trim();
     const result = matched.filter(it => {
@@ -325,12 +309,11 @@ export default function EmployerCVs() {
       return hay.includes(q);
     });
     
-    // ✅ SẮP XẾP THEO ĐIỂM GIẢM DẦN (CAO → THẤP)
     return result.sort((a, b) => {
       const scoreA = Number(a.aiScore?.scoreTotal || 0);
       const scoreB = Number(b.aiScore?.scoreTotal || 0);
-      if (scoreB !== scoreA) return scoreB - scoreA; // Điểm cao trước
-      return (a.candidate?.name || '').localeCompare(b.candidate?.name || ''); // Tên A-Z khi điểm bằng nhau
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return (a.candidate?.name || '').localeCompare(b.candidate?.name || '');
     });
   }, [matched, query, status]);
 
@@ -369,18 +352,15 @@ export default function EmployerCVs() {
     }
   };
 
-  // ✅ SỬA HÀM updateStatus - ĐỔI 'shortlisted' → 'accepted'
   const updateStatus = async (appId, next) => {
     try {
       setUpdating(true);
       
-      // ✅ ĐỔI 'shortlisted' THÀNH 'accepted' ĐỂ HIỂN THỊ TRONG "QUẢN LÝ ỨNG VIÊN"
-      const targetStatus = next === 'shortlisted' ? 'accepted' : next;
+      const targetStatus = next;
       
       const res = await applicationService.updateApplicationStatus(appId, targetStatus);
       const data = res?.data?.data || res?.data || {};
       
-      // ✅ CẬP NHẬT STATUS TRONG STATE
       setItems(prev =>
         prev.map(it =>
           it.id === appId ? { ...it, status: data.status || targetStatus, statusHistory: data.statusHistory || it.statusHistory } : it
@@ -388,7 +368,7 @@ export default function EmployerCVs() {
       );
       
       if (next === 'shortlisted') {
-        toast.success('✅ Đã duyệt sơ tuyển! Ứng viên được chuyển sang "Quản lý ứng viên"');
+        toast.success('Đã duyệt sơ tuyển! Ứng viên được chuyển sang "Quản lý ứng viên"');
       } else {
         toast.success('Cập nhật trạng thái thành công');
       }
@@ -417,7 +397,6 @@ export default function EmployerCVs() {
         )}
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
         <div className="relative w-full sm:w-[380px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -442,19 +421,16 @@ export default function EmployerCVs() {
         </select>
       </div>
 
-      {/* Thống kê */}
       <div className="mb-4 flex items-center gap-4 text-sm">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700">
           <Award className="w-4 h-4" />
           <span className="font-medium">{matched.length}</span> ứng viên phù hợp
         </div>
-        {/* ✅ SỬA THỐNG KÊ */}
         <div className="text-slate-500">
-          Từ tổng số <span className="font-medium">{items.filter(it => !['accepted', 'interviewed', 'hired'].includes(it.status)).length}</span> hồ sơ chưa xử lý
+          Từ tổng số <span className="font-medium">{items.filter(it => !['shortlisted','interviewed','accepted'].includes(it.status)).length}</span> hồ sơ chưa xử lý
         </div>
       </div>
 
-      {/* List */}
       <div>
         {loading ? (
           <div className="space-y-3">
@@ -486,7 +462,6 @@ export default function EmployerCVs() {
         )}
       </div>
 
-      {/* Pagination */}
       <div className="mt-6 flex items-center justify-end text-sm text-slate-600">
         <div className="flex items-center gap-4">
           <div>Tổng {filtered.length} hồ sơ phù hợp</div>
@@ -522,8 +497,6 @@ export default function EmployerCVs() {
     </div>
   );
 }
-
-/* ================== Components ================== */
 
 function CVRow({ item, onOpen }) {
   const name = item.candidate?.name || 'Ứng viên';
@@ -629,7 +602,6 @@ function Cell({ label, value }) {
   );
 }
 
-/* ===== Modal chi tiết ===== */
 function DetailModal({ app, onClose, onDownload, onApprove, updating }) {
   const [full, setFull] = useState(null);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -877,11 +849,10 @@ function DetailModal({ app, onClose, onDownload, onApprove, updating }) {
                     <div className="text-sm text-slate-400">Ngày ứng tuyển: {fmtDateTime(app.createdAt)}</div>
                   </div>
 
-                  {/* ✅ SỬA ĐIỀU KIỆN DISABLE */}
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={onApprove}
-                      disabled={updating || ['accepted', 'interviewed', 'hired'].includes(app.status)}
+                      disabled={updating || ['shortlisted', 'interviewed', 'accepted'].includes(app.status)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Check className="w-4 h-4" /> Duyệt sơ tuyển

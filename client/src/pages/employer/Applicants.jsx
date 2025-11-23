@@ -7,6 +7,42 @@ function normalizeId(p) {
   return decodeURIComponent(String(p ?? '').trim());
 }
 
+// Helper: ép kiểu về mảng
+const asList = (x) => {
+  if (!x) return [];
+  if (Array.isArray(x)) return x;
+  try {
+    const a = JSON.parse(x);
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  }
+};
+
+// Helper: lấy matched/missing từ nhiều tên field khác nhau của API
+const pickMatched = (score) =>
+  asList(score?.matchedSkills ?? score?.matched_skills ?? score?.matched ?? []);
+const pickMissing = (score) =>
+  asList(
+    (Array.isArray(score?.missingMustHave) && score?.missingMustHave.length
+      ? score?.missingMustHave
+      : score?.missing_must_have
+    ) ?? score?.missingSkills ?? score?.missing_skills ?? score?.missing ?? []
+  );
+
+// Chip hiển thị kỹ năng
+const SkillChip = ({ label, tone = 'green' }) => {
+  const cls =
+    tone === 'green'
+      ? 'bg-green-100 text-green-800 border-green-200'
+      : 'bg-red-100 text-red-800 border-red-200';
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${cls}`}>
+      {label}
+    </span>
+  );
+};
+
 export default function Applicants() {
   // Nhận cả id/jobId để không phụ thuộc tên param
   const { id: idParam, jobId: jobIdParam } = useParams();
@@ -23,15 +59,6 @@ export default function Applicants() {
     if (!idFromRoute) return;
     loadData(idFromRoute);
   }, [idFromRoute]);
-
-  // TỰ ĐỘNG RESCORE THÔNG MINH KHI VÀO TRANG (TẠM TẮT ĐỂ TRÁNH LỖI)
-  // useEffect(() => {
-  //   if (!idFromRoute) return;
-  //   jobService.rescoreJobApplications(idFromRoute, { 
-  //     onlyMissing: true,
-  //     staleMinutes: 1440
-  //   }).catch(() => {});
-  // }, [idFromRoute]);
 
   const loadData = async (jobId) => {
     setLoading(true);
@@ -53,7 +80,7 @@ export default function Applicants() {
               params: { _t: Date.now() }, // cache-buster
               headers: { 'Cache-Control': 'no-cache' },
             });
-            return { ...app, aiScore: scoreRes.data?.data };
+            return { ...app, aiScore: (scoreRes.data?.data || scoreRes.data) ?? null };
           } catch (error) {
             console.warn(`Failed to get score for ${app.id}:`, error?.response?.status || error?.message);
             return { ...app, aiScore: null };
@@ -77,11 +104,12 @@ export default function Applicants() {
     .filter(a => (a.aiScore?.scoreTotal || 0) < 50)
     .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
 
+  // ĐỔI: set 'interviewed' (không dùng 'interviewing')
   const inviteInterview = async (applicationId) => {
     if (!window.confirm('Xác nhận mời ứng viên này phỏng vấn?')) return;
     try {
       setInviting(applicationId);
-      await applicationService.updateApplicationStatus(applicationId, 'interviewing');
+      await applicationService.updateApplicationStatus(applicationId, 'interviewed');
       alert('Đã gửi lời mời phỏng vấn!');
       await loadData(idFromRoute);
     } catch (error) {
@@ -101,7 +129,6 @@ export default function Applicants() {
         staleMinutes: 1440,   // định nghĩa "cũ": 24h
       });
       alert('Đã gửi yêu cầu chấm lại điểm. Vui lòng đợi vài giây...');
-      // Đợi AI chạy nền một chút rồi tải lại
       setTimeout(() => loadData(idFromRoute), 3000);
     } catch (e) {
       alert(e.response?.data?.message || 'Rescore tất cả thất bại');
@@ -201,7 +228,7 @@ export default function Applicants() {
   );
 }
 
-// ===== Matched list (BỎ ICON RESCORE) =====
+// ===== Matched list =====
 function MatchedList({ applications, inviting, onInvite }) {
   if (applications.length === 0) {
     return (
@@ -236,21 +263,8 @@ function MatchedList({ applications, inviting, onInvite }) {
               score >= 60 ? 'bg-yellow-100 text-yellow-800' :
               'bg-gray-100 text-gray-800';
 
-            const matched = (
-              app.aiScore?.matchedSkills ||
-              app.aiScore?.matched ||
-              app.aiScore?.matched_skills ||
-              []
-            );
-            const missing = (
-              (Array.isArray(app.aiScore?.missingMustHave) && app.aiScore?.missingMustHave.length
-                ? app.aiScore?.missingMustHave
-                : app.aiScore?.missingSkills || app.aiScore?.missing || app.aiScore?.missing_skills
-              ) || []
-            );
-
-            const matchedTop = matched;
-            const missingTop = missing;
+            const matched = pickMatched(app.aiScore);
+            const missing = pickMissing(app.aiScore);
 
             return (
               <tr key={app.id} className="hover:bg-gray-50">
@@ -261,7 +275,7 @@ function MatchedList({ applications, inviting, onInvite }) {
                 </td>
 
                 <td className="px-4 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
+                  <div className="flex items-start">
                     <div>
                       <div className="text-sm font-medium text-gray-900">{app.candidate?.name || 'Không rõ'}</div>
                       <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
@@ -280,12 +294,8 @@ function MatchedList({ applications, inviting, onInvite }) {
 
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-1 max-w-xs">
-                    {matchedTop.length > 0 ? (
-                      matchedTop.map((s, i) => (
-                        <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          {s}
-                        </span>
-                      ))
+                    {matched.length > 0 ? (
+                      matched.map((s, i) => <SkillChip key={s + i} label={s} tone="green" />)
                     ) : (
                       <span className="text-gray-400 text-sm">—</span>
                     )}
@@ -294,12 +304,8 @@ function MatchedList({ applications, inviting, onInvite }) {
 
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-1 max-w-xs">
-                    {missingTop.length > 0 ? (
-                      missingTop.map((s, i) => (
-                        <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                          {s}
-                        </span>
-                      ))
+                    {missing.length > 0 ? (
+                      missing.map((s, i) => <SkillChip key={s + i} label={s} tone="red" />)
                     ) : (
                       <span className="text-gray-400 text-sm">—</span>
                     )}
@@ -308,15 +314,14 @@ function MatchedList({ applications, inviting, onInvite }) {
 
                 <td className="px-4 py-4 whitespace-nowrap">
                   {app.cv?.url || app.cv?.filePath ? (
-                    <a href={app.cv.url || app.cv.filePath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                    <a href={app.cv?.url || app.cv?.filePath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
                       <Download className="w-4 h-4" />Xem CV
                     </a>
                   ) : <span className="text-gray-400 text-sm">—</span>}
                 </td>
 
-                {/* ĐÃ BỎ ICON RESCORE - CHỈ CÒN NÚT MỜI PHỎNG VẤN */}
                 <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
-                  {app.status === 'interviewing' ? (
+                  {app.status === 'interviewed' ? (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       Đã mời PV
                     </span>
@@ -339,7 +344,7 @@ function MatchedList({ applications, inviting, onInvite }) {
   );
 }
 
-// ===== Not matched list (BỎ CỘT HÀNH ĐỘNG) =====
+// ===== Not matched list =====
 function NotMatchedList({ applications }) {
   if (applications.length === 0) {
     return (
@@ -358,21 +363,16 @@ function NotMatchedList({ applications }) {
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">STT</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ứng viên</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AI Score</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kỹ năng phù hợp</th> {/* THÊM CỘT */}
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lý do không phù hợp</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CV</th>
-            {/* ĐÃ XÓA CỘT HÀNH ĐỘNG */}
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {applications.map((app, index) => {
             const score = app.aiScore?.scoreTotal || 0;
-            
-            const missingMustHave = (
-              (Array.isArray(app.aiScore?.missingMustHave) && app.aiScore?.missingMustHave.length
-                ? app.aiScore?.missingMustHave
-                : app.aiScore?.missingSkills || []
-              )
-            );
+            const matched = pickMatched(app.aiScore);
+            const missingMustHave = pickMissing(app.aiScore);
 
             return (
               <tr key={app.id} className="hover:bg-gray-50">
@@ -386,29 +386,40 @@ function NotMatchedList({ applications }) {
                 <td className="px-4 py-4 whitespace-nowrap">
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">{score}%</span>
                 </td>
-                
+
+                {/* Kỹ năng phù hợp (mới thêm) */}
+                <td className="px-4 py-4">
+                  {matched.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 max-w-md">
+                      {matched.map((skill, i) => (
+                        <SkillChip key={skill + i} label={skill} tone="green" />
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                  )}
+                </td>
+
+                {/* Lý do không phù hợp (missing) */}
                 <td className="px-4 py-4">
                   {missingMustHave.length > 0 ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
                       {missingMustHave.map((skill, i) => (
-                        <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                          {skill}
-                        </span>
+                        <SkillChip key={skill + i} label={skill} tone="red" />
                       ))}
                     </div>
                   ) : (
                     <span className="text-sm text-gray-500">Điểm tổng thấp</span>
                   )}
                 </td>
-                
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   {app.cv?.url || app.cv?.filePath ? (
-                    <a href={app.cv.url || app.cv.filePath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                    <a href={app.cv?.url || app.cv?.filePath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
                       <Download className="w-4 h-4" />Xem CV
                     </a>
                   ) : <span className="text-gray-400 text-sm">—</span>}
                 </td>
-                {/* ĐÃ XÓA CỘT HÀNH ĐỘNG (RESCORE) */}
               </tr>
             );
           })}

@@ -21,9 +21,11 @@ import Jobs from './pages/Jobs';
 // ===== Ứng viên (Candidate) =====
 import ProfileLayout from './pages/profile/ProfileLayout';
 import ProfileOverview from './pages/profile/Overview';
-import MyProfile from './pages/profile/MyProfile'; // NEW: Trang "Hồ Sơ Của Tôi"
+import MyProfile from './pages/profile/MyProfile';
 import MyApplications from './pages/MyApplications';
 import SavedJobs from './pages/SavedJobs';
+import Notifications from './pages/profile/Notifications';
+import AccountSettings from './pages/profile/AccountSettings';
 
 // ===== Nhà tuyển dụng (Employer) =====
 import EmployerLayout from './components/employer/EmployerLayout';
@@ -42,7 +44,9 @@ import AdminDashboard from './pages/admin/Dashboard';
 import AdminCompanies from './pages/admin/Companies';
 import AdminJobs from './pages/admin/Jobs';
 import AdminUsers from './pages/admin/Users';
-import AdminHome from './pages/admin/AdminHome';
+import AdminApplications from './pages/admin/Applications';
+import CompanyDetail from './pages/admin/CompanyDetail';
+import AdminJobDetail from './pages/admin/JobDetail'; // ✅ THÊM IMPORT NÀY
 
 // ===== Thành phần chung =====
 import Header from './components/Header';
@@ -86,7 +90,7 @@ function Landing() {
   } catch {}
 
   if (token && userType === 'employer') return <Navigate to="/employer/dashboard" replace />;
-  if (token && userType === 'admin') return <Navigate to="/admin" replace />;
+  if (token && userType === 'admin') return <Navigate to="/admin/dashboard" replace />;
   return <Home />;
 }
 
@@ -132,10 +136,7 @@ function Shell() {
             element={<ProtectedRoute><ProfileLayout /></ProtectedRoute>}
           >
             <Route index element={<ProfileOverview />} />
-
-            {/* Hồ sơ của tôi */}
             <Route path="myprofile" element={<MyProfile />} />
-
             <Route
               path="my-applications"
               element={
@@ -152,9 +153,8 @@ function Shell() {
                 </ProtectedRoute>
               }
             />
-
-            <Route path="notifications" element={<div className="p-4">Thông báo việc làm (đang phát triển)</div>} />
-            <Route path="account" element={<div className="p-4">Cài đặt tài khoản (đang phát triển)</div>} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="account" element={<AccountSettings />} />
           </Route>
 
           <Route
@@ -180,7 +180,6 @@ function Shell() {
             <Route path="recruitment" element={<div className="p-4">Tuyển dụng (đang phát triển)</div>} />
             <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<EmployerCandidates />} />
-            {/* ✅ SỬA: Thay placeholder bằng component thật */}
             <Route path="reports" element={<EmployerReports />} />
           </Route>
 
@@ -189,11 +188,14 @@ function Shell() {
             path="/admin"
             element={<ProtectedRoute roles={['admin']}><AdminLayout /></ProtectedRoute>}
           >
-            <Route index element={<AdminHome />} />
+            <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="companies" element={<AdminCompanies />} />
+            <Route path="companies/:id" element={<CompanyDetail />} />
             <Route path="jobs" element={<AdminJobs />} />
+            <Route path="jobs/:id" element={<AdminJobDetail />} /> {/* ✅ THÊM DÒNG NÀY */}
             <Route path="users" element={<AdminUsers />} />
+            <Route path="applications" element={<AdminApplications />} />
           </Route>
 
           {/* ===== 404 ===== */}

@@ -2,200 +2,241 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { jobService } from '../../services/api';
 import { toast } from 'react-toastify';
+import { vietnamLocations } from '../../data/vietnam-locations';
 
 export default function JobFormModal({ open, onClose, job, onSuccess }) {
   const isEdit = !!job;
-  
+
   const [formData, setFormData] = useState({
     title: '',
     company: '',
-    location: '',
+    province: '',
+    district: '',
+    workAddress: '',
     type: 'full-time',
     salary: '',
     experience: '',
     description: '',
     requirements: '',
     category: '',
+    deadline: '',
     jdText: '',
     mustHaveSkills: [],
-    niceToHaveSkills: [],
   });
-  
+
+  const [districts, setDistricts] = useState([]);
   const [mustHaveInput, setMustHaveInput] = useState('');
-  const [niceToHaveInput, setNiceToHaveInput] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  useEffect(() => {
-    if (open) {
-      if (job) {
-        // Parse skills từ JSON string
-        const parseMustHave = () => {
-          try {
-            const parsed = JSON.parse(job.mustHaveSkills || '[]');
-            return Array.isArray(parsed) ? parsed : [];
-          } catch {
-            return [];
-          }
-        };
-        
-        const parseNiceToHave = () => {
-          try {
-            const parsed = JSON.parse(job.niceToHaveSkills || '[]');
-            return Array.isArray(parsed) ? parsed : [];
-          } catch {
-            return [];
-          }
-        };
-        
-        setFormData({
-          title: job.title || '',
-          company: job.company || '',
-          location: job.location || '',
-          type: job.type || 'full-time',
-          salary: job.salary || '',
-          experience: job.experience || '',
-          description: job.description || '',
-          requirements: job.requirements || '',
-          category: job.category || '',
-          jdText: job.jdText || '',
-          mustHaveSkills: parseMustHave(),
-          niceToHaveSkills: parseNiceToHave(),
-        });
-      } else {
-        setFormData({
-          title: '',
-          company: '',
-          location: '',
-          type: 'full-time',
-          salary: '',
-          experience: '',
-          description: '',
-          requirements: '',
-          category: '',
-          jdText: '',
-          mustHaveSkills: [],
-          niceToHaveSkills: [],
-        });
+
+  // ---------- Helpers ----------
+  const formatDeadline = (d) => {
+    if (!d) return '';
+    try {
+      const date = new Date(d);
+      if (Number.isNaN(date.getTime())) return '';
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    } catch {
+      return '';
+    }
+  };
+
+  const parseLocation = (location) => {
+    if (!location) return { province: '', district: '' };
+    const parts = String(location).split(',').map(s => s.trim());
+    if (parts.length >= 2) {
+      const district = parts[0];
+      const provinceName = parts.slice(1).join(', ');
+
+      // tìm theo name/includes (cover các trường hợp "TP.", "Thành phố")
+      const found = vietnamLocations.find(p => {
+        const a = p.name.toLowerCase();
+        const b = provinceName.toLowerCase();
+        return a.includes(b) || b.includes(a);
+      });
+
+      if (found) {
+        setDistricts(found.districts);
+        return { province: found.code, district };
       }
     }
+    return { province: '', district: '' };
+  };
+
+  const getDefaultDeadline = () => {
+    const date = new Date();
+    date.setDate(date.getDate() + 30);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  // ---------- Prefill when open ----------
+  useEffect(() => {
+    if (!open) return;
+
+    if (job) {
+      let must = [];
+      try {
+        const parsed = JSON.parse(job.mustHaveSkills || '[]');
+        must = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        must = [];
+      }
+
+      const { province, district } = parseLocation(job.location);
+
+      setFormData({
+        title: job.title || '',
+        company: job.company || '',
+        province,
+        district,
+        workAddress: job.workAddress || '',
+        type: job.type || 'full-time',
+        salary: job.salary || '',
+        experience: job.experience || '',
+        description: job.description || '',
+        requirements: job.requirements || '',
+        category: job.category || '',
+        deadline: formatDeadline(job.deadline || job.expireDate || job.expiresAt || job.closingDate),
+        jdText: job.jdText || '',
+        mustHaveSkills: must,
+      });
+    } else {
+      setFormData({
+        title: '',
+        company: '',
+        province: '',
+        district: '',
+        workAddress: '',
+        type: 'full-time',
+        salary: '',
+        experience: '',
+        description: '',
+        requirements: '',
+        category: '',
+        deadline: getDefaultDeadline(),
+        jdText: '',
+        mustHaveSkills: [],
+      });
+      setDistricts([]);
+    }
   }, [open, job]);
-  
+
+  // ---------- Handlers ----------
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'province') {
+      const selected = vietnamLocations.find(p => p.code === value);
+      setDistricts(selected ? selected.districts : []);
+      setFormData(prev => ({ ...prev, province: value, district: '' }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
-  
+
   const addMustHaveSkill = () => {
     const skill = mustHaveInput.trim().toLowerCase();
     if (skill && !formData.mustHaveSkills.includes(skill)) {
       setFormData(prev => ({
         ...prev,
-        mustHaveSkills: [...prev.mustHaveSkills, skill]
+        mustHaveSkills: [...prev.mustHaveSkills, skill],
       }));
       setMustHaveInput('');
     }
   };
-  
+
   const removeMustHaveSkill = (skill) => {
     setFormData(prev => ({
       ...prev,
-      mustHaveSkills: prev.mustHaveSkills.filter(s => s !== skill)
+      mustHaveSkills: prev.mustHaveSkills.filter(s => s !== skill),
     }));
   };
-  
-  const addNiceToHaveSkill = () => {
-    const skill = niceToHaveInput.trim().toLowerCase();
-    if (skill && !formData.niceToHaveSkills.includes(skill)) {
-      setFormData(prev => ({
-        ...prev,
-        niceToHaveSkills: [...prev.niceToHaveSkills, skill]
-      }));
-      setNiceToHaveInput('');
-    }
-  };
-  
-  const removeNiceToHaveSkill = (skill) => {
-    setFormData(prev => ({
-      ...prev,
-      niceToHaveSkills: prev.niceToHaveSkills.filter(s => s !== skill)
-    }));
-  };
-  
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validation
-    if (!formData.title.trim()) {
-      toast.error('Vui lòng nhập tiêu đề công việc');
-      return;
-    }
-    
-    if (!formData.jdText.trim()) {
-      toast.error('Vui lòng nhập mô tả chi tiết công việc (JD)');
-      return;
-    }
-    
-    if (formData.mustHaveSkills.length === 0) {
-      toast.error('Vui lòng thêm ít nhất 1 kỹ năng bắt buộc');
-      return;
-    }
-    
+
+    // basic validation
+    if (!formData.title.trim()) return toast.error('Vui lòng nhập tiêu đề công việc');
+    if (!formData.province) return toast.error('Vui lòng chọn Tỉnh/Thành phố');
+    if (!formData.district) return toast.error('Vui lòng chọn Quận/Huyện');
+    if (!formData.jdText.trim()) return toast.error('Vui lòng nhập mô tả chi tiết công việc (JD)');
+    if (formData.mustHaveSkills.length === 0) return toast.error('Vui lòng thêm ít nhất 1 kỹ năng bắt buộc');
+    if (!formData.deadline) return toast.error('Vui lòng chọn ngày hết hạn');
+
+    const deadlineDate = new Date(formData.deadline);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (deadlineDate < today) return toast.error('Ngày hết hạn phải từ hôm nay trở đi');
+
     setLoading(true);
-    
     try {
-      const payload = {
-        ...formData,
+      const selectedProvince = vietnamLocations.find(p => p.code === formData.province);
+      const locationString = `${formData.district}, ${selectedProvince?.name || ''}`.trim();
+
+      // payload cơ bản
+      const base = {
+        title: formData.title,
+        company: formData.company,
+        type: formData.type,
+        salary: formData.salary || null,
+        experience: formData.experience || null,
+        description: formData.description || null,
+        requirements: formData.requirements || null,
+        category: formData.category || null,
+        deadline: formData.deadline || null,
+        location: locationString,
+        workAddress: formData.workAddress?.trim() || null,
+        jdText: formData.jdText || null,
         mustHaveSkills: JSON.stringify(formData.mustHaveSkills),
-        niceToHaveSkills: JSON.stringify(formData.niceToHaveSkills),
       };
-      
+
       if (isEdit) {
-        await jobService.updateJob(job.id, payload);
+        // Tránh bump jdVersion không cần thiết: KHÔNG gửi niceToHaveSkills khi update
+        await jobService.updateJob(job.id, base);
         toast.success('Cập nhật tin tuyển dụng thành công!');
       } else {
-        await jobService.createJob(payload);
+        // Tạo mới: có thể gửi niceToHaveSkills rỗng để đảm bảo schema
+        const payloadCreate = {
+          ...base,
+          niceToHaveSkills: JSON.stringify([]),
+        };
+        await jobService.createJob(payloadCreate);
         toast.success('Tạo tin tuyển dụng thành công!');
       }
-      
+
       onSuccess?.();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Có lỗi xảy ra');
+      toast.error(error?.response?.data?.message || 'Có lỗi xảy ra');
     } finally {
       setLoading(false);
     }
   };
-  
+
   if (!open) return null;
-  
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Backdrop */}
-        <div 
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-          onClick={onClose}
-        />
-        
-        {/* Modal */}
+        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
+
         <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
-          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">
               {isEdit ? 'Chỉnh sửa tin tuyển dụng' : 'Tạo tin tuyển dụng mới'}
             </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
               <X className="w-5 h-5" />
             </button>
           </div>
-          
-          {/* Body */}
+
           <form onSubmit={handleSubmit} className="px-6 py-4 max-h-[70vh] overflow-y-auto">
             <div className="space-y-4">
-              {/* Thông tin cơ bản */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Title */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Tiêu đề công việc <span className="text-red-500">*</span>
@@ -206,10 +247,11 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     value={formData.title}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="VD: Frontend Developer"
+                    placeholder="VD: Backend Developer"
                   />
                 </div>
-                
+
+                {/* Company */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Công ty <span className="text-red-500">*</span>
@@ -223,25 +265,67 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     placeholder="Tên công ty"
                   />
                 </div>
-                
+
+                {/* Province */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Địa điểm <span className="text-red-500">*</span>
+                    Tỉnh/Thành phố <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="province"
+                    value={formData.province}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Chọn Tỉnh/Thành phố --</option>
+                    {vietnamLocations.map((province) => (
+                      <option key={province.code} value={province.code}>
+                        {province.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* District */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quận/Huyện <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="district"
+                    value={formData.district}
+                    onChange={handleChange}
+                    disabled={!formData.province}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">{formData.province ? '-- Chọn Quận/Huyện --' : '-- Chọn Tỉnh/TP trước --'}</option>
+                    {districts.map((d, i) => (
+                      <option key={i} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Work address */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    📍 Địa chỉ làm việc cụ thể <span className="ml-1 text-xs text-gray-500">(Tùy chọn)</span>
                   </label>
                   <input
                     type="text"
-                    name="location"
-                    value={formData.location}
+                    name="workAddress"
+                    value={formData.workAddress}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Hà Nội, TP.HCM..."
+                    placeholder="VD: Tầng 10, APEC Office Building, 112 Phan Châu Trinh, P. Hải Châu 1, Q. Hải Châu, Đà Nẵng"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Chỉ điền nếu vị trí này làm việc tại địa chỉ KHÁC với trụ sở chính (chi nhánh, dự án, cửa hàng…)
+                  </p>
                 </div>
-                
+
+                {/* Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Loại công việc
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Loại công việc</label>
                   <select
                     name="type"
                     value={formData.type}
@@ -254,55 +338,66 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     <option value="intern">Thực tập</option>
                   </select>
                 </div>
-                
+
+                {/* Salary */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mức lương
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mức lương</label>
                   <input
                     type="text"
                     name="salary"
                     value={formData.salary}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="15-20 triệu"
+                    placeholder="20-30 triệu"
                   />
                 </div>
-                
+
+                {/* Experience */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kinh nghiệm
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kinh nghiệm</label>
                   <input
                     type="text"
                     name="experience"
                     value={formData.experience}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="2-3 năm"
+                    placeholder="2-5"
                   />
                 </div>
-                
-                <div className="md:col-span-2">
+
+                {/* Deadline */}
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Ngành nghề
+                    Ngày hết hạn <span className="text-red-500">*</span>
                   </label>
+                  <input
+                    type="date"
+                    name="deadline"
+                    value={formData.deadline}
+                    onChange={handleChange}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Ngày cuối cùng nhận hồ sơ ứng tuyển</p>
+                </div>
+
+                {/* Category */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ngành nghề</label>
                   <input
                     type="text"
                     name="category"
                     value={formData.category}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="IT, Marketing, Sales..."
+                    placeholder="Công nghệ thông tin - Backend"
                   />
                 </div>
               </div>
-              
-              {/* Mô tả công việc */}
+
+              {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mô tả công việc
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả công việc</label>
                 <textarea
                   name="description"
                   value={formData.description}
@@ -312,11 +407,10 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                   placeholder="Mô tả ngắn gọn về công việc..."
                 />
               </div>
-              
+
+              {/* Requirements */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Yêu cầu công việc
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Yêu cầu công việc</label>
                 <textarea
                   name="requirements"
                   value={formData.requirements}
@@ -326,13 +420,10 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                   placeholder="Các yêu cầu về kỹ năng, kinh nghiệm..."
                 />
               </div>
-              
-              {/* JD cho AI */}
+
+              {/* AI info */}
               <div className="border-t border-gray-200 pt-4 mt-4">
-                <h4 className="text-sm font-semibold text-gray-900 mb-3">
-                  🤖 Thông tin cho AI (quan trọng)
-                </h4>
-                
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">🤖 Thông tin cho AI (quan trọng)</h4>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Mô tả chi tiết công việc (JD) <span className="text-red-500">*</span>
@@ -346,14 +437,18 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     placeholder="Mô tả chi tiết yêu cầu công việc, kỹ năng cần thiết... AI sẽ dùng thông tin này để chấm điểm CV"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Ví dụ: "Cần tuyển Frontend Developer biết React, JavaScript, TypeScript. Có kinh nghiệm 2-3 năm..."
+                    Ví dụ: 'Cần tuyển Backend Developer (Node.js) biết Express, JavaScript, MongoDB...'
                   </p>
                 </div>
-                
+
+                {/* Must-have skills */}
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kỹ năng BẮT BUỘC (must-have) <span className="text-red-500">*</span>
+                    Kỹ năng BẮT BUỘC <span className="text-red-500">*</span>
                   </label>
+                  <p className="text-xs text-gray-600 mb-2 bg-yellow-50 border border-yellow-200 rounded p-2">
+                    ⚠️ <strong>Lưu ý:</strong> Tất cả kỹ năng ở đây đều là bắt buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm.
+                  </p>
                   <div className="flex gap-2 mb-2">
                     <input
                       type="text"
@@ -366,7 +461,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                         }
                       }}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Nhập kỹ năng, nhấn Enter để thêm"
+                      placeholder="Nhập kỹ năng, nhấn Enter để thêm (vd: nodejs, express, javascript, mongodb)"
                     />
                     <button
                       type="button"
@@ -379,7 +474,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                   <div className="flex flex-wrap gap-2">
                     {formData.mustHaveSkills.map((skill, index) => (
                       <span
-                        key={index}
+                        key={`${skill}-${index}`}
                         className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm"
                       >
                         {skill}
@@ -387,6 +482,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                           type="button"
                           onClick={() => removeMustHaveSkill(skill)}
                           className="hover:text-red-900"
+                          title="Xóa"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -394,62 +490,13 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Ví dụ: react, javascript, html, css
-                  </p>
-                </div>
-                
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kỹ năng ƯU TIÊN (nice-to-have)
-                  </label>
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      type="text"
-                      value={niceToHaveInput}
-                      onChange={(e) => setNiceToHaveInput(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addNiceToHaveSkill();
-                        }
-                      }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Nhập kỹ năng, nhấn Enter để thêm"
-                    />
-                    <button
-                      type="button"
-                      onClick={addNiceToHaveSkill}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                    >
-                      Thêm
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {formData.niceToHaveSkills.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm"
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() => removeNiceToHaveSkill(skill)}
-                          className="hover:text-green-900"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Ví dụ: typescript, redux, nextjs
+                    Gợi ý: nodejs, express, javascript, mongodb (hoặc nhóm DB khác phù hợp)
                   </p>
                 </div>
               </div>
             </div>
           </form>
-          
-          {/* Footer */}
+
           <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
             <button
               type="button"

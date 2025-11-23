@@ -8,6 +8,9 @@ const Job = sequelize.define('Job', {
   company: { type: DataTypes.STRING(255), allowNull: false, validate: { notEmpty: true, len: [1, 255] } },
   location: { type: DataTypes.STRING(255), allowNull: false, validate: { notEmpty: true } },
 
+  // Địa chỉ làm việc cụ thể (chi nhánh/dự án) - OPTIONAL
+  workAddress: { type: DataTypes.STRING(500), allowNull: true }, // ← THÊM
+
   // Hiển thị tự do (text)
   salary: { type: DataTypes.STRING(100), allowNull: true },
   // Lọc theo band

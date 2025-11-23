@@ -10,6 +10,7 @@ const CV = require('./CV');
 const Application = require('./Application');
 const SavedJob = require('./SavedJob');
 const Score = require('./Score');
+const Notification = require('./Notification'); 
 
 const db = {
   Sequelize,
@@ -20,6 +21,7 @@ const db = {
   Application,
   SavedJob,
   Score,
+  Notification, 
 };
 
 let associationsApplied = false;
@@ -55,6 +57,14 @@ function applyAssociations() {
   // Saved jobs (N-N): users <-> jobs qua saved_jobs
   db.User.belongsToMany(db.Job, { through: db.SavedJob, foreignKey: 'userId', otherKey: 'jobId', as: 'savedJobs', onDelete: 'CASCADE', hooks: true });
   db.Job.belongsToMany(db.User, { through: db.SavedJob, foreignKey: 'jobId', otherKey: 'userId', as: 'savedByUsers', onDelete: 'CASCADE', hooks: true });
+
+  // User -> Notification (1-N)
+  db.User.hasMany(db.Notification, { foreignKey: 'userId', as: 'notifications', onDelete: 'CASCADE', hooks: true });
+  db.Notification.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+
+  // Job -> Notification (1-N) - optional
+  db.Job.hasMany(db.Notification, { foreignKey: 'jobId', as: 'notifications', onDelete: 'SET NULL' });
+  db.Notification.belongsTo(db.Job, { foreignKey: 'jobId', as: 'job' });
 }
 
 applyAssociations();

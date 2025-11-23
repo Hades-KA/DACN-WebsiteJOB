@@ -5,7 +5,6 @@ import api, { companyService, userService } from '../../services/api';
 const readUser = () => { try { return JSON.parse(localStorage.getItem('user')||'null'); } catch { return null; } };
 function cx(...args) { return args.filter(Boolean).join(' '); }
 
-// ===== Helpers =====
 const pickFirst = (...vals) => vals.find(v => v !== undefined && v !== null && v !== '');
 const pullCompanyId = (u) => {
   if (!u) return null;
@@ -14,7 +13,6 @@ const pullCompanyId = (u) => {
     u.company?.id,
     u.employer?.companyId,
     u.profile?.companyId,
-    // nhiều đồ án map trùng userId = companyId:
     u.userId, u.id, u.accountId, u.uid
   );
 };
@@ -67,12 +65,11 @@ export default function CompanyProfile() {
   const [me, setMe] = useState(readUser() || {});
   const [data, setData] = useState(null);
 
-  const [activeTab, setActiveTab] = useState('basic'); // basic | contact | stats
+  const [activeTab, setActiveTab] = useState('basic');
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
 
-  // stats
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState('');
@@ -84,7 +81,6 @@ export default function CompanyProfile() {
     const load = async () => {
       setLoadError('');
       try {
-        // 1) /auth/me
         let u = null;
         try {
           const r = await api.get('/auth/me');
@@ -92,7 +88,6 @@ export default function CompanyProfile() {
         } catch (_) {
           u = readUser();
         }
-        // 2) /users/profile (để chắc có phone/email)
         let profile = null;
         try {
           const r2 = await userService.getProfile();
@@ -103,7 +98,6 @@ export default function CompanyProfile() {
         setMe(merged);
         try { localStorage.setItem('user', JSON.stringify(merged)); } catch {}
 
-        // 3) Tìm công ty
         const { company, companyId: cid } = await findCompanyForUser(merged);
         if (!cid || !company) {
           setLoadError('Không tìm thấy companyId/hồ sơ công ty từ thông tin tài khoản. Vui lòng kiểm tra mapping user → company hoặc tạo hồ sơ công ty trước.');
@@ -136,12 +130,9 @@ export default function CompanyProfile() {
       }
     };
     if (activeTab === 'stats') fetchStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, companyId]);
 
-  // onChange cho company
   const onChange = (e) => setData({ ...data, [e.target.name]: e.target.value });
-  // onChange cho user (phone/email)
   const onChangeUser = (e) => setMe(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
   const uploadLogoFile = async (file) => {
@@ -181,7 +172,6 @@ export default function CompanyProfile() {
     try {
       setSaving(true);
 
-      // 1) Lưu thông tin công ty
       await companyService.updateCompany(companyId, {
         company: data.company,
         companyWebsite: data.companyWebsite,
@@ -195,20 +185,33 @@ export default function CompanyProfile() {
         companyAbout: data.companyAbout,
       });
 
-      // 2) Lưu phone/email của user
       const phoneVal = getPhoneFromUser(me);
       const emailVal = getEmailFromUser(me);
-      const payloadUser = {};
-      if (phoneVal !== undefined) payloadUser.phone = phoneVal;      // BE của bạn dùng "phone"
-      if (emailVal !== undefined) payloadUser.email = emailVal;
-      // gửi kèm alias nếu backend dùng tên khác
-      payloadUser.phoneNumber = phoneVal;
-      payloadUser.mobile = phoneVal;
+
+      const payloadUser = {
+        phone: phoneVal ?? undefined,
+        phoneNumber: phoneVal ?? undefined,
+        mobile: phoneVal ?? undefined,
+        email: emailVal ?? undefined,
+
+        company: data.company ?? undefined,
+        companyWebsite: data.companyWebsite ?? undefined,
+        companySize: data.companySize ?? undefined,
+        industry: data.industry ?? undefined,
+        companyCity: data.companyCity ?? undefined,
+        companyAddress: data.companyAddress ?? undefined,
+        logoUrl: data.logoUrl ?? undefined,
+        companyAbout: data.companyAbout ?? undefined,
+      };
+
+      Object.keys(payloadUser).forEach((k) => {
+        if (payloadUser[k] === undefined || payloadUser[k] === '') delete payloadUser[k];
+      });
 
       try {
         await userService.updateProfile(payloadUser);
       } catch (e) {
-        console.warn('Cập nhật user profile (phone/email) lỗi:', e?.response?.data || e.message);
+        console.warn('Cập nhật user profile (company fields) lỗi:', e?.response?.data || e.message);
       }
 
       await refreshUserProfile();
@@ -231,12 +234,11 @@ export default function CompanyProfile() {
     return <div className="p-4 bg-white rounded-lg shadow-sm ring-1 ring-black/5">Đang tải hồ sơ công ty...</div>;
   }
 
-  const displayPhone = getPhoneFromUser(me) ?? data.phone;  // Ưu tiên user.phone
+  const displayPhone = getPhoneFromUser(me) ?? data.phone;
   const displayEmail = getEmailFromUser(me) ?? data.email;
 
   return (
     <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4">
-      {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="text-2xl font-bold">Hồ Sơ Công Ty</div>
         {!editing ? (
@@ -257,7 +259,6 @@ export default function CompanyProfile() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="mt-2">
         <div className="flex items-center gap-8 text-sm border-b">
           {[
@@ -279,7 +280,6 @@ export default function CompanyProfile() {
         </div>
       </div>
 
-      {/* Nội dung */}
       <div className="mt-4">
         {activeTab === 'basic' && (
           <InfoTable>
@@ -397,7 +397,6 @@ export default function CompanyProfile() {
               <CellValue>
                 <InputOrText type="link" name="companyWebsite" value={data.companyWebsite} editing={editing} onChange={onChange} placeholder="https://..." />
               </CellValue>
-              {/* Giữ 5 cột để thẳng hàng */}
               <td className="border-y border-gray-200 w-0 p-0 bg-gray-100" />
               <th className="w-[22%] bg-gray-50 text-gray-600 font-medium border px-4 py-3"></th>
               <td className="border px-4 py-3"></td>
@@ -422,7 +421,6 @@ export default function CompanyProfile() {
               </div>
             ) : (
               <>
-                {/* KPIs */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                   <KpiCard label="Tổng tin đăng" value={fmt(stats?.cards?.jobsTotal)} color="indigo" icon="briefcase" />
                   <KpiCard label="Đang mở" value={fmt(stats?.cards?.jobsOpen)} color="emerald" icon="bolt" />
@@ -431,7 +429,6 @@ export default function CompanyProfile() {
                   <KpiCard label="Tổng đơn" value={fmt(stats?.cards?.applicationsTotal)} color="amber" icon="inbox" />
                 </div>
 
-                {/* Breakdown */}
                 <SectionCard title="Phân bố trạng thái đơn" className="mt-4">
                   {stats?.breakdown?.byStatus && Object.keys(stats.breakdown.byStatus).length ? (
                     <div className="space-y-3">
@@ -452,7 +449,6 @@ export default function CompanyProfile() {
                   )}
                 </SectionCard>
 
-                {/* Recent jobs */}
                 <SectionCard title="Tin đăng gần đây" className="mt-4">
                   {stats?.recentJobs?.length ? (
                     <ul className="text-sm text-gray-700 divide-y">
@@ -480,8 +476,6 @@ export default function CompanyProfile() {
     </div>
   );
 }
-
-/* ================= Helpers (UI components) ================= */
 
 function InfoTable({ children }) {
   return (
@@ -539,7 +533,7 @@ function InputOrText({ name, value, editing, onChange, placeholder, type }) {
     <input
       className="w-full px-3 py-2 border rounded-md"
       name={name}
-      value={value ?? ''} // giữ giá trị nếu là '0'
+      value={value ?? ''}
       onChange={onChange}
       placeholder={placeholder}
     />
@@ -565,26 +559,6 @@ function DescriptionBox({ text }) {
     </div>
   );
 }
-
-/* ============ Old simple cards (giữ lại nếu cần dùng nơi khác) ============ */
-function StatCard({ label, value }) {
-  return (
-    <div className="bg-white rounded-md p-3 ring-1 ring-black/5">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-xl font-semibold text-gray-900">{value}</div>
-    </div>
-  );
-}
-function SmallStat({ label, value }) {
-  return (
-    <div className="bg-white rounded-md p-2 ring-1 ring-black/5 text-center">
-      <div className="text-[11px] text-gray-500">{label}</div>
-      <div className="text-base font-semibold text-gray-900">{value}</div>
-    </div>
-  );
-}
-
-/* ============ Pretty components for Stats ============ */
 
 function SectionCard({ title, children, className }) {
   return (

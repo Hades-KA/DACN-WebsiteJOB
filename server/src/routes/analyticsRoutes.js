@@ -2,7 +2,7 @@
 const express = require('express');
 const { Application, Job, Score, User, sequelize } = require('../models');
 const { auth } = require('../middleware/auth');
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ const router = express.Router();
 router.use(auth);
 
 /**
- * ✅ HELPER: Format date cho SQL Server
+ * HELPER: Format date cho SQL Server
  */
 function formatDateForSQL(date) {
   const d = new Date(date);
@@ -20,25 +20,23 @@ function formatDateForSQL(date) {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   const seconds = String(d.getSeconds()).padStart(2, '0');
-  
   // Format: YYYY-MM-DD HH:mm:ss
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 /**
- * ✅ HELPER: Parse deep JSON (xử lý double-encoded)
+ * HELPER: Parse deep JSON (xử lý double-encoded)
  */
 function parseListDeep(raw) {
   if (raw == null) return [];
   let v = raw;
-  // Parse tối đa 2 lần để xử lý double-encoded
   for (let i = 0; i < 2; i++) {
     if (typeof v === 'string') {
-      try { 
-        v = JSON.parse(v); 
-        continue; 
-      } catch { 
-        break; 
+      try {
+        v = JSON.parse(v);
+        continue;
+      } catch {
+        break;
       }
     }
     break;
@@ -47,12 +45,12 @@ function parseListDeep(raw) {
 }
 
 /**
- * ✅ HELPER: Chuẩn hóa skill name
+ * HELPER: Chuẩn hóa skill name
  */
 const normalizeSkill = (s) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
 
 /**
- * ✅ HELPER: Unique array
+ * HELPER: Unique array
  */
 const uniq = (arr) => Array.from(new Set(arr || [])).filter(Boolean);
 
@@ -69,15 +67,14 @@ router.get('/overview', async (req, res) => {
       return res.status(403).json({ message: 'Forbidden' });
     }
 
-    // 1. Lấy tất cả jobs của employer
+    // 1) Jobs của employer
     const jobs = await Job.findAll({
       where: userType === 'employer' ? { employerId: userId } : {},
       attributes: ['id', 'title', 'viewsCount', 'applicationsCount', 'createdAt'],
     });
 
-    const jobIds = jobs.map(j => j.id);
+    const jobIds = jobs.map((j) => j.id);
 
-    // ✅ FIX: Xử lý khi không có jobs
     if (jobIds.length === 0) {
       return res.json({
         message: 'Analytics overview retrieved',
@@ -95,34 +92,34 @@ router.get('/overview', async (req, res) => {
           aiMetrics: {
             avgScore: '0.0',
             scoreRanges: { excellent: 0, good: 0, fair: 0, poor: 0 },
-            totalScored: 0
+            totalScored: 0,
           },
-          conversionRate: '0.0'
-        }
+          conversionRate: '0.0',
+        },
       });
     }
 
-    // 2. Lấy tất cả applications
+    // 2) Applications
     const applications = await Application.findAll({
       where: { jobId: { [Op.in]: jobIds } },
       attributes: ['id', 'status', 'jobId', 'createdAt'],
       include: [
-        { 
-          model: Score, 
+        {
+          model: Score,
           as: 'scores',
           attributes: ['scoreTotal', 'matchedSkills', 'missingSkills', 'missingMustHave', 'generatedAt'],
           separate: true,
           order: [['generatedAt', 'DESC']],
-          limit: 1
-        }
-      ]
+          limit: 1,
+        },
+      ],
     });
 
-    // 3. Tính toán metrics
+    // 3) Metrics
     const totalApplications = applications.length;
     const totalJobs = jobs.length;
     const totalViews = jobs.reduce((sum, j) => sum + (j.viewsCount || 0), 0);
-    
+
     const statusCounts = {
       pending: 0,
       reviewing: 0,
@@ -131,24 +128,25 @@ router.get('/overview', async (req, res) => {
       accepted: 0,
     };
 
-    applications.forEach(a => {
+    applications.forEach((a) => {
       statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
     });
 
-    // 4. AI Score metrics
-    const appsWithScores = applications.filter(a => a.scores && a.scores[0]?.scoreTotal);
-    const avgScore = appsWithScores.length 
-      ? appsWithScores.reduce((sum, a) => sum + a.scores[0].scoreTotal, 0) / appsWithScores.length 
-      : 0;
+    // 4) AI score từ bảng Score (0..100)
+    const appsWithScores = applications.filter((a) => a.scores && a.scores[0]?.scoreTotal);
+    const avgScore =
+      appsWithScores.length
+        ? appsWithScores.reduce((sum, a) => sum + a.scores[0].scoreTotal, 0) / appsWithScores.length
+        : 0;
 
     const scoreRanges = {
-      excellent: 0,  // 80-100
-      good: 0,       // 60-79
-      fair: 0,       // 40-59
-      poor: 0        // 0-39
+      excellent: 0, // 80-100
+      good: 0, // 60-79
+      fair: 0, // 40-59
+      poor: 0, // 0-39
     };
 
-    appsWithScores.forEach(a => {
+    appsWithScores.forEach((a) => {
       const score = a.scores[0].scoreTotal;
       if (score >= 80) scoreRanges.excellent++;
       else if (score >= 60) scoreRanges.good++;
@@ -156,10 +154,8 @@ router.get('/overview', async (req, res) => {
       else scoreRanges.poor++;
     });
 
-    // 5. Conversion rate
-    const conversionRate = totalApplications > 0
-      ? ((statusCounts.accepted / totalApplications) * 100).toFixed(1)
-      : 0;
+    // 5) Conversion rate
+    const conversionRate = totalApplications > 0 ? ((statusCounts.accepted / totalApplications) * 100).toFixed(1) : 0;
 
     res.json({
       message: 'Analytics overview retrieved',
@@ -171,12 +167,11 @@ router.get('/overview', async (req, res) => {
         aiMetrics: {
           avgScore: avgScore.toFixed(1),
           scoreRanges,
-          totalScored: appsWithScores.length
+          totalScored: appsWithScores.length,
         },
-        conversionRate
-      }
+        conversionRate,
+      },
     });
-
   } catch (error) {
     console.error('Analytics overview error:', error);
     res.status(500).json({ message: 'Failed to get analytics overview' });
@@ -184,7 +179,7 @@ router.get('/overview', async (req, res) => {
 });
 
 /**
- * ✅ GET /api/analytics/ai-performance - FIXED SQL DATE ISSUE
+ * GET /api/analytics/ai-performance
  * Phân tích hiệu suất AI matching
  */
 router.get('/ai-performance', async (req, res) => {
@@ -196,69 +191,62 @@ router.get('/ai-performance', async (req, res) => {
       return res.status(403).json({ message: 'Forbidden' });
     }
 
-    // Nhận tham số months và topN
     const months = Number(req.query.months || 0); // 0 = all time
     const topN = Math.min(Number(req.query.top || 10), 50);
 
-    // Lấy jobs của employer
     const jobs = await Job.findAll({
       where: userType === 'employer' ? { employerId: userId } : {},
       attributes: ['id'],
     });
 
-    const jobIds = jobs.map(j => j.id);
-    
-    // Xử lý khi không có jobs
+    const jobIds = jobs.map((j) => j.id);
+
     if (!jobIds.length) {
       return res.json({
         message: 'AI performance metrics retrieved',
-        data: { 
-          accuracy: [], 
-          topMatchedSkills: [], 
-          topMissingSkills: [] 
+        data: {
+          accuracy: [],
+          topMatchedSkills: [],
+          topMissingSkills: [],
         },
-        meta: { months, totalApps: 0 }
+        meta: { months, totalApps: 0 },
       });
     }
 
-    // Lọc applications theo thời gian
     const whereApp = { jobId: { [Op.in]: jobIds } };
-    
-    // ✅ FIX: Sử dụng CAST DATETIME2 để tránh lỗi SQL Server
+
     if (months > 0 && Number.isFinite(months)) {
       const from = new Date();
       from.setMonth(from.getMonth() - months);
       from.setHours(0, 0, 0, 0);
       const fromSql = formatDateForSQL(from);
-      whereApp.createdAt = { 
-        [Op.gte]: sequelize.literal(`CAST('${fromSql}' AS DATETIME2)`) 
-      };
+      whereApp.createdAt = { [Op.gte]: sequelize.literal(`CAST('${fromSql}' AS DATETIME2)`) };
     }
 
     const applications = await Application.findAll({
       where: whereApp,
       attributes: ['id', 'status', 'createdAt'],
-      include: [{
-        model: Score,
-        as: 'scores',
-        attributes: ['scoreTotal', 'matchedSkills', 'missingSkills', 'missingMustHave', 'generatedAt'],
-        separate: true,
-        order: [['generatedAt', 'DESC']],
-        limit: 1
-      }]
+      include: [
+        {
+          model: Score,
+          as: 'scores',
+          attributes: ['scoreTotal', 'matchedSkills', 'missingSkills', 'missingMustHave', 'generatedAt'],
+          separate: true,
+          order: [['generatedAt', 'DESC']],
+          limit: 1,
+        },
+      ],
     });
 
-    // Buckets cho accuracy
     const buckets = [
       { label: '0-39%', test: (x) => x < 40 },
       { label: '40-59%', test: (x) => x >= 40 && x < 60 },
       { label: '60-79%', test: (x) => x >= 60 && x < 80 },
       { label: '80-100%', test: (x) => x >= 80 },
     ];
-    const totalBy = Object.fromEntries(buckets.map(b => [b.label, 0]));
-    const acceptedBy = Object.fromEntries(buckets.map(b => [b.label, 0]));
+    const totalBy = Object.fromEntries(buckets.map((b) => [b.label, 0]));
+    const acceptedBy = Object.fromEntries(buckets.map((b) => [b.label, 0]));
 
-    // Đếm kỹ năng
     const matchedMap = new Map();
     const missingMap = new Map();
 
@@ -266,23 +254,16 @@ router.get('/ai-performance', async (req, res) => {
       const score = app.scores?.[0];
       if (!score) continue;
 
-      // Tính accuracy
       const scoreTotal = Number(score.scoreTotal || 0);
-      const bucket = buckets.find(b => b.test(scoreTotal));
+      const bucket = buckets.find((b) => b.test(scoreTotal));
       if (bucket) {
         totalBy[bucket.label]++;
         if (app.status === 'accepted') acceptedBy[bucket.label]++;
       }
 
-      // Parse skills với parseListDeep để xử lý double-encoded
-      const matchedList = uniq(
-        parseListDeep(score.matchedSkills).map(normalizeSkill)
-      );
-      const missingList = uniq(
-        parseListDeep(score.missingMustHave || score.missingSkills).map(normalizeSkill)
-      );
+      const matchedList = uniq(parseListDeep(score.matchedSkills).map(normalizeSkill));
+      const missingList = uniq(parseListDeep(score.missingMustHave || score.missingSkills).map(normalizeSkill));
 
-      // Đếm mỗi skill 1 lần/CV
       for (const skill of matchedList) {
         if (skill) matchedMap.set(skill, (matchedMap.get(skill) || 0) + 1);
       }
@@ -291,20 +272,17 @@ router.get('/ai-performance', async (req, res) => {
       }
     }
 
-    // Convert map sang array và sort
-    const toTop = (map) => [...map.entries()]
-      .map(([skill, count]) => ({ skill, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, topN);
+    const toTop = (map) =>
+      [...map.entries()]
+        .map(([skill, count]) => ({ skill, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, topN);
 
-    // Tính accuracy percentage
-    const accuracy = buckets.map(b => ({
+    const accuracy = buckets.map((b) => ({
       range: b.label,
       total: totalBy[b.label],
       accepted: acceptedBy[b.label],
-      accuracy: totalBy[b.label] > 0 
-        ? Math.round((acceptedBy[b.label] / totalBy[b.label]) * 1000) / 10 
-        : 0
+      accuracy: totalBy[b.label] > 0 ? Math.round((acceptedBy[b.label] / totalBy[b.label]) * 1000) / 10 : 0,
     }));
 
     return res.json({
@@ -312,18 +290,15 @@ router.get('/ai-performance', async (req, res) => {
       data: {
         accuracy,
         topMatchedSkills: toTop(matchedMap),
-        topMissingSkills: toTop(missingMap)
+        topMissingSkills: toTop(missingMap),
       },
-      meta: { months, totalApps: applications.length }
+      meta: { months, totalApps: applications.length },
     });
-
   } catch (error) {
     console.error('AI performance error:', error);
     res.status(500).json({ message: 'Failed to get AI performance' });
   }
 });
-
-// ... (giữ nguyên các route khác: funnel, trends, top-jobs)
 
 /**
  * GET /api/analytics/funnel
@@ -343,34 +318,34 @@ router.get('/funnel', async (req, res) => {
       attributes: ['id'],
     });
 
-    const jobIds = jobs.map(j => j.id);
+    const jobIds = jobs.map((j) => j.id);
 
     if (jobIds.length === 0) {
       const statusOrder = ['pending', 'reviewing', 'shortlisted', 'interviewed', 'accepted'];
-      const emptyFunnel = statusOrder.map(status => ({
+      const emptyFunnel = statusOrder.map((status) => ({
         status,
         count: 0,
-        avgDays: '0.0'
+        avgDays: '0.0',
       }));
       return res.json({
         message: 'Recruitment funnel retrieved',
-        data: emptyFunnel
+        data: emptyFunnel,
       });
     }
 
     const applications = await Application.findAll({
       where: { jobId: { [Op.in]: jobIds } },
-      attributes: ['status', 'createdAt', 'updatedAt']
+      attributes: ['status', 'createdAt', 'updatedAt'],
     });
 
     const statusMap = {};
-    applications.forEach(app => {
+    applications.forEach((app) => {
       const status = app.status;
       if (!statusMap[status]) {
         statusMap[status] = { count: 0, totalDays: 0, items: 0 };
       }
       statusMap[status].count++;
-      
+
       if (app.updatedAt && app.createdAt) {
         const created = new Date(app.createdAt);
         const updated = new Date(app.updatedAt);
@@ -383,23 +358,20 @@ router.get('/funnel', async (req, res) => {
     });
 
     const statusOrder = ['pending', 'reviewing', 'shortlisted', 'interviewed', 'accepted'];
-    
-    const funnel = statusOrder.map(status => {
+
+    const funnel = statusOrder.map((status) => {
       const data = statusMap[status];
       return {
         status,
         count: data ? data.count : 0,
-        avgDays: data && data.items > 0 
-          ? (data.totalDays / data.items).toFixed(1) 
-          : '0.0'
+        avgDays: data && data.items > 0 ? (data.totalDays / data.items).toFixed(1) : '0.0',
       };
     });
 
     res.json({
       message: 'Recruitment funnel retrieved',
-      data: funnel
+      data: funnel,
     });
-
   } catch (error) {
     console.error('Funnel error:', error);
     res.status(500).json({ message: 'Failed to get funnel data' });
@@ -407,7 +379,7 @@ router.get('/funnel', async (req, res) => {
 });
 
 /**
- * GET /api/analytics/trends - FIXED DATE FORMAT
+ * GET /api/analytics/trends
  * Xu hướng theo thời gian
  */
 router.get('/trends', async (req, res) => {
@@ -427,13 +399,12 @@ router.get('/trends', async (req, res) => {
       where: userType === 'employer' ? { employerId: userId } : {},
       attributes: ['id'],
     });
-    const jobIds = jobs.map(j => j.id);
+    const jobIds = jobs.map((j) => j.id);
 
     if (!jobIds.length) {
       return res.json({ message: 'Trends data retrieved', data: [] });
     }
 
-    // Chọn mốc bắt đầu: ưu tiên days, fallback months (mặc định 12)
     const useDays = Number.isFinite(daysInt) && daysInt > 0;
     const startDate = new Date();
     if (useDays) {
@@ -447,25 +418,27 @@ router.get('/trends', async (req, res) => {
     const applications = await Application.findAll({
       where: {
         jobId: { [Op.in]: jobIds },
-        createdAt: { [Op.gte]: sequelize.literal(`CAST('${formatDateForSQL(startDate)}' AS DATETIME2)`) }
+        createdAt: { [Op.gte]: sequelize.literal(`CAST('${formatDateForSQL(startDate)}' AS DATETIME2)`) },
       },
       attributes: ['id', 'createdAt'],
-      include: [{
-        model: Score,
-        as: 'scores',
-        attributes: ['scoreTotal'],
-        separate: true,
-        order: [['generatedAt', 'DESC']],
-        limit: 1
-      }]
+      include: [
+        {
+          model: Score,
+          as: 'scores',
+          attributes: ['scoreTotal'],
+          separate: true,
+          order: [['generatedAt', 'DESC']],
+          limit: 1,
+        },
+      ],
     });
 
-    const map = {}; // key -> { count, totalScore, scoreItems }
+    const map = {};
     for (const app of applications) {
       const d = new Date(app.createdAt);
       const key = useDays
-        ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` // theo ngày
-        : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; // theo tháng
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
       map[key] ||= { count: 0, totalScore: 0, scoreItems: 0 };
       map[key].count++;
@@ -479,9 +452,9 @@ router.get('/trends', async (req, res) => {
 
     const trends = Object.entries(map)
       .map(([label, v]) => ({
-        month: label, // FE đang dùng field "month" để hiển thị trục X
+        month: label,
         applications: v.count,
-        avgScore: v.scoreItems > 0 ? Number((v.totalScore / v.scoreItems).toFixed(1)) : 0
+        avgScore: v.scoreItems > 0 ? Number((v.totalScore / v.scoreItems).toFixed(1)) : 0,
       }))
       .sort((a, b) => a.month.localeCompare(b.month));
 
@@ -509,59 +482,141 @@ router.get('/top-jobs', async (req, res) => {
       where: userType === 'employer' ? { employerId: userId } : {},
       attributes: ['id', 'title', 'applicationsCount', 'viewsCount', 'createdAt'],
       order: [['applicationsCount', 'DESC']],
-      limit: 10
+      limit: 10,
     });
 
     if (jobs.length === 0) {
       return res.json({
         message: 'Top jobs retrieved',
-        data: []
+        data: [],
       });
     }
 
-    const topJobs = await Promise.all(jobs.map(async (job) => {
-      const applications = await Application.findAll({
-        where: { jobId: job.id },
-        include: [
-          { 
-            model: Score, 
-            as: 'scores',
-            attributes: ['scoreTotal'],
-            separate: true,
-            order: [['generatedAt', 'DESC']],
-            limit: 1
-          }
-        ]
-      });
+    const topJobs = await Promise.all(
+      jobs.map(async (job) => {
+        const applications = await Application.findAll({
+          where: { jobId: job.id },
+          include: [
+            {
+              model: Score,
+              as: 'scores',
+              attributes: ['scoreTotal'],
+              separate: true,
+              order: [['generatedAt', 'DESC']],
+              limit: 1,
+            },
+          ],
+        });
 
-      const scoresArray = applications
-        .filter(a => a.scores && a.scores[0])
-        .map(a => a.scores[0].scoreTotal);
+        const scoresArray = applications.filter((a) => a.scores && a.scores[0]).map((a) => a.scores[0].scoreTotal);
 
-      const avgScore = scoresArray.length 
-        ? (scoresArray.reduce((sum, s) => sum + s, 0) / scoresArray.length).toFixed(1)
-        : 0;
+        const avgScore = scoresArray.length
+          ? (scoresArray.reduce((sum, s) => sum + s, 0) / scoresArray.length).toFixed(1)
+          : 0;
 
-      return {
-        id: job.id,
-        title: job.title,
-        applications: job.applicationsCount || 0,
-        views: job.viewsCount || 0,
-        avgScore,
-        conversionRate: job.viewsCount > 0 
-          ? ((job.applicationsCount / job.viewsCount) * 100).toFixed(1)
-          : 0
-      };
-    }));
+        return {
+          id: job.id,
+          title: job.title,
+          applications: job.applicationsCount || 0,
+          views: job.viewsCount || 0,
+          avgScore,
+          conversionRate: job.viewsCount > 0 ? ((job.applicationsCount / job.viewsCount) * 100).toFixed(1) : 0,
+        };
+      })
+    );
 
     res.json({
       message: 'Top jobs retrieved',
-      data: topJobs
+      data: topJobs,
     });
-
   } catch (error) {
     console.error('Top jobs error:', error);
     res.status(500).json({ message: 'Failed to get top jobs' });
+  }
+});
+
+/**
+ * GET /api/analytics/score-distribution
+ * Phân bố điểm AI score (cho Admin Dashboard)
+ * LƯU Ý: aiMatchScore trong bảng applications đang ở thang 0..10.
+ * Buckets 0-20/20-40/... tương ứng với ngưỡng 2/4/6/8.
+ */
+router.get('/score-distribution', async (req, res) => {
+  try {
+    const userType = req.user.userType;
+
+    let jobIds = [];
+    if (userType === 'employer') {
+      const jobs = await Job.findAll({
+        where: { employerId: req.user.userId },
+        attributes: ['id'],
+      });
+      jobIds = jobs.map((j) => j.id);
+
+      if (jobIds.length === 0) {
+        return res.json({
+          message: 'Score distribution retrieved',
+          data: [],
+        });
+      }
+    }
+
+    // Tránh dùng alias 'range' (keyword) => dùng 'bucket'
+    // Bọc tên cột bằng [] theo MSSQL
+    const whereClause =
+      userType === 'employer'
+        ? `WHERE a.[jobId] IN (${jobIds.map(() => '?').join(',')}) AND a.[aiMatchScore] IS NOT NULL`
+        : 'WHERE a.[aiMatchScore] IS NOT NULL';
+
+    const query = `
+      SELECT
+        t.bucket,
+        COUNT(*) AS [count]
+      FROM (
+        SELECT
+          CASE
+            WHEN a.[aiMatchScore] < 2 THEN '0-20%'
+            WHEN a.[aiMatchScore] < 4 THEN '20-40%'
+            WHEN a.[aiMatchScore] < 6 THEN '40-60%'
+            WHEN a.[aiMatchScore] < 8 THEN '60-80%'
+            ELSE '80-100%'
+          END AS bucket,
+          CASE
+            WHEN a.[aiMatchScore] < 2 THEN 1
+            WHEN a.[aiMatchScore] < 4 THEN 2
+            WHEN a.[aiMatchScore] < 6 THEN 3
+            WHEN a.[aiMatchScore] < 8 THEN 4
+            ELSE 5
+          END AS bucket_idx
+        FROM [applications] AS a
+        ${whereClause}
+      ) t
+      GROUP BY t.bucket, t.bucket_idx
+      ORDER BY t.bucket_idx
+    `;
+
+    const distribution = await sequelize.query(query, {
+      replacements: userType === 'employer' ? jobIds : [],
+      type: QueryTypes.SELECT,
+    });
+
+    res.json({
+      message: 'Score distribution retrieved',
+      data: distribution,
+    });
+  } catch (error) {
+    console.error('Score distribution error:', error);
+    // Fallback để dashboard không đỏ khi lỗi
+    res.status(200).json({
+      message: 'Score distribution retrieved',
+      data: [
+        { bucket: '0-20%', count: 0 },
+        { bucket: '20-40%', count: 0 },
+        { bucket: '40-60%', count: 0 },
+        { bucket: '60-80%', count: 0 },
+        { bucket: '80-100%', count: 0 },
+      ],
+    });
   }
 });
 

@@ -10,9 +10,9 @@ import {
   FileText,
   Info,
   ListChecks,
-  Contact as ContactIcon,
-  Mail,
   Phone,
+  Mail,
+  Globe
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -33,7 +33,6 @@ const formatDate = (d) => {
   return dt.toLocaleDateString('vi-VN');
 };
 
-// Lấy URL logo theo nhiều field khác nhau
 function getLogoUrl(job = {}) {
   const candidates = [
     job.companyLogo,
@@ -67,7 +66,6 @@ function normalizeJob(j, idx = 0) {
   };
 }
 
-// Parse danh sách kỹ năng (JSON string/array/"a,b,c")
 function parseList(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter(Boolean);
@@ -92,24 +90,20 @@ export default function JobDetail() {
   const [similar, setSimilar] = useState([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
 
-  // Apply nhanh
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
 
-  // Lưu tin
   const [isSaved, setIsSaved] = useState(false);
   const [savedId, setSavedId] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const [tab, setTab] = useState('desc');
 
-  // ✅ NORMALIZE USER từ localStorage (hỗ trợ nhiều key)
   const userRaw = localStorage.getItem('user');
   const currentUser = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
   const userType = currentUser?.userType || currentUser?.role;
   const currentUserId = currentUser?.id || currentUser?.userId || currentUser?._id || null;
 
-  // Load job
   useEffect(() => {
     let active = true;
     (async () => {
@@ -129,18 +123,16 @@ export default function JobDetail() {
     return () => { active = false; };
   }, [id]);
 
-  // ✅ CHECK ĐÃ NỘP CHƯA (candidate) - GỌI ĐúNG API
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const uid = currentUserId; // đã normalize id ở trên
+        const uid = currentUserId;
         if (!job?.id || !uid) {
           if (active) setApplied(false);
           return;
         }
 
-        // Gọi /applications (backend tự filter theo candidate đang đăng nhập)
         const res = await applicationService.getApplications({
           jobId: job.id,
           limit: 1,
@@ -157,7 +149,6 @@ export default function JobDetail() {
     return () => { active = false; };
   }, [job?.id, currentUserId]);
 
-  // Check saved
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token || !job?.id) {
@@ -189,7 +180,6 @@ export default function JobDetail() {
     return () => { active = false; };
   }, [job?.id]);
 
-  // Similar jobs
   useEffect(() => {
     if (!job?.category && !job?.location) return;
     let active = true;
@@ -222,12 +212,10 @@ export default function JobDetail() {
     return () => { active = false; };
   }, [job?.category, job?.location, job?.id]);
 
-  // Kỹ năng (đồng bộ với JobFormModal)
   const mustHaveSkills = useMemo(() => parseList(job?.mustHaveSkills), [job?.mustHaveSkills]);
   const niceToHaveSkills = useMemo(() => parseList(job?.niceToHaveSkills), [job?.niceToHaveSkills]);
-  const fallbackSkills = useMemo(() => parseList(job?.skills), [job?.skills]); // nếu BE vẫn còn field cũ
+  const fallbackSkills = useMemo(() => parseList(job?.skills), [job?.skills]);
 
-  // Style
   const innerFrameCls =
     'rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08),inset_0_12px_30px_rgba(0,0,0,0.04),inset_0_-10px_24px_rgba(255,255,255,0.85)]';
   const softPanelStyle = {
@@ -237,7 +225,6 @@ export default function JobDetail() {
       'inset 0 0 0 1px rgba(0,0,0,0.06), inset 0 8px 24px rgba(0,0,0,0.04), inset 0 -6px 16px rgba(255,255,255,0.7)',
   };
 
-  // Apply nhanh
   const applyQuick = async () => {
     const token = localStorage.getItem('token');
     if (!token) return navigate('/login');
@@ -250,7 +237,6 @@ export default function JobDetail() {
     try {
       setApplying(true);
 
-      // 1) CV từ profile
       let cvFromProfile = null;
       let candidateId = currentUserId;
       try {
@@ -260,7 +246,6 @@ export default function JobDetail() {
         if (!candidateId && p?.id) candidateId = p.id;
       } catch {}
 
-      // 2) CV từ cvService
       let cvFromService = null;
       try {
         const res = await cvService.getAllCVs();
@@ -332,20 +317,16 @@ export default function JobDetail() {
   if (error) return <div className="min-h-[50vh] flex items-center justify-center text-red-600">{error}</div>;
   if (!job) return null;
 
-  // ✅ THÊM BIẾN postedAt (ngày đăng)
-  const postedAt =
-    job?.createdAt ||
-    job?.publishedAt ||
-    job?.postedAt ||
-    job?.created_at ||
-    job?.createdOn ||
-    null;
+  const postedAt = job?.createdAt || job?.publishedAt || job?.postedAt || job?.created_at || job?.createdOn || null;
+  const deadlineAt = job?.deadline || job?.expireDate || job?.expiresAt || job?.closingDate || job?.deadlineAt || job?.endDate || null;
+  const isExpired = deadlineAt ? new Date(deadlineAt) < new Date() : false;
 
-  const contact = {
-    name: job.contactName || job.employer?.name || '',
-    email: job.contactEmail || job.employer?.email || '',
-    phone: job.contactPhone || job.employer?.phone || '',
-    address: job.contactAddress || job.employer?.companyAddress || '',
+  const companyInfo = {
+    name: job?.employer?.company || job?.company || '',
+    address: job?.workAddress || job?.employer?.companyAddress || job?.contactAddress || '',
+    phone: job?.employer?.phone || job?.contactPhone || '',
+    email: job?.employer?.email || job?.contactEmail || '',
+    website: job?.employer?.companyWebsite || '',
   };
 
   return (
@@ -386,10 +367,25 @@ export default function JobDetail() {
                         {job.salary || job.salaryBand || 'Thoả thuận'}
                       </span>
                     </div>
-                    {/* ✅ ĐỔI THÀNH "Ngày đăng" */}
-                    <div className="mt-2 inline-flex items-center gap-1.5">
-                      <CalendarDays className="w-4 h-4 text-slate-500" />
-                      <span>Ngày đăng: {postedAt ? formatDate(postedAt) : '-'}</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarDays className="w-4 h-4 text-slate-500" />
+                        <span>Ngày đăng: {postedAt ? formatDate(postedAt) : '-'}</span>
+                      </span>
+                      {deadlineAt && (
+                        <>
+                          <span className="text-slate-400">-</span>
+                          <span className={`inline-flex items-center gap-1.5 ${isExpired ? 'text-rose-600 font-medium' : ''}`}>
+                            {!isExpired && <CalendarDays className="w-4 h-4 text-slate-500" />}
+                            <span>Hạn nộp: {formatDate(deadlineAt)}</span>
+                          </span>
+                          {isExpired && (
+                            <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 text-[11px] font-bold border border-rose-200">
+                              Hết hạn
+                            </span>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -428,13 +424,13 @@ export default function JobDetail() {
           {/* Tabs card */}
           <div className="rounded-2xl bg-white p-2 shadow-[0_6px_18px_rgba(17,12,46,0.06)]">
             <div className={`${innerFrameCls}`}>
-              {/* Tab bar */}
-              <div className="flex items-center gap-2 px-4 pt-3 border-b border-gray-100">
+              {/* Tab bar - ĐÃ CĂN GIỮA (Desktop) & TRÁI (Mobile) + ẨN THANH CUỘN */}
+              <div className="flex items-center justify-start md:justify-center gap-2 px-4 pt-3 border-b border-gray-100 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                 {[
                   { key: 'desc', label: 'Mô tả', icon: FileText },
                   { key: 'detail', label: 'Chi tiết công việc', icon: Info },
                   { key: 'skills', label: 'Kỹ năng yêu cầu', icon: ListChecks },
-                  { key: 'contact', label: 'Liên hệ', icon: ContactIcon },
+                  { key: 'company', label: 'Thông tin công ty & Liên hệ', icon: Building },
                 ].map(({ key, label, icon: Icon }) => {
                   const active = tab === key;
                   return (
@@ -442,7 +438,7 @@ export default function JobDetail() {
                       type="button"
                       key={key}
                       onClick={() => setTab(key)}
-                      className={`relative px-3 py-2 text-sm rounded-t-md transition-colors ${
+                      className={`relative flex-none px-3 py-2 text-sm rounded-t-md transition-colors whitespace-nowrap ${
                         active ? 'text-violet-700 font-medium' : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
@@ -478,7 +474,7 @@ export default function JobDetail() {
                       </section>
                     ) : null}
 
-                    {/* 1) Mô tả công việc (ngắn) */}
+                    {/* Mô tả công việc */}
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <FileText className="w-4 h-4 text-slate-500" />
@@ -491,7 +487,7 @@ export default function JobDetail() {
                       </div>
                     </section>
 
-                    {/* 2) Thông tin chi tiết */}
+                    {/* Thông tin chi tiết */}
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <Info className="w-4 h-4 text-slate-500" />
@@ -527,7 +523,7 @@ export default function JobDetail() {
                       </div>
                     </section>
 
-                    {/* 3) Yêu cầu công việc */}
+                    {/* Yêu cầu công việc */}
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <ListChecks className="w-4 h-4 text-slate-500" />
@@ -539,85 +535,10 @@ export default function JobDetail() {
                         </div>
                       </div>
                     </section>
-
-                    {/* 4) Thông tin liên hệ (chỉ Email & Hotline) */}
-                    <section>
-                      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-                        <ContactIcon className="w-4 h-4 text-slate-500" />
-                        <h3 className="text-[17px] font-medium text-slate-800">Thông tin liên hệ</h3>
-                      </div>
-                      <div className="mt-3 space-y-3">
-                        {contact.email && (
-                          <div style={softPanelStyle} className="p-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shadow-inner">
-                                <Mail className="w-4 h-4" />
-                              </div>
-                              <div className="flex-1">
-                                <div className="text-sm text-slate-500">Email:</div>
-                                <a href={`mailto:${contact.email}`} className="text-[15px] font-medium text-fuchsia-600 hover:underline">
-                                  {contact.email}
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {contact.phone && (
-                          <div style={softPanelStyle} className="p-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shadow-inner">
-                                <Phone className="w-4 h-4" />
-                              </div>
-                              <div className="flex-1">
-                                <div className="text-sm text-slate-500">Hotline:</div>
-                                <a href={`tel:${contact.phone}`} className="text-[15px] font-medium text-fuchsia-600 hover:underline">
-                                  {contact.phone}
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {!contact.email && !contact.phone && (
-                          <div style={softPanelStyle} className="p-3 text-sm text-slate-500">
-                            Chưa có thông tin liên hệ.
-                          </div>
-                        )}
-                      </div>
-                    </section>
                   </div>
                 )}
 
-                {/* Tab: Liên hệ (xem riêng) */}
-                {tab === 'contact' && (
-                  <div style={softPanelStyle} className="p-4 text-sm space-y-3">
-                    {contact.email && (
-                      <div className="inline-flex items-center gap-2 text-slate-700">
-                        <ContactIcon className="w-4 h-4 text-slate-500" />
-                        Email: <a className="text-fuchsia-600 hover:underline" href={`mailto:${contact.email}`}>{contact.email}</a>
-                      </div>
-                    )}
-                    {contact.phone && (
-                      <div className="text-slate-700">
-                        Hotline: <a className="text-fuchsia-600 hover:underline" href={`tel:${contact.phone}`}>{contact.phone}</a>
-                      </div>
-                    )}
-                    {contact.name && (
-                      <div className="text-slate-700">
-                        Người liên hệ: <span className="font-medium">{contact.name}</span>
-                      </div>
-                    )}
-                    {contact.address && (
-                      <div className="text-slate-700">
-                        Địa chỉ: {contact.address}
-                      </div>
-                    )}
-                    {!contact.email && !contact.phone && !contact.name && !contact.address && (
-                      <div className="text-slate-500">Chưa có thông tin liên hệ.</div>
-                    )}
-                  </div>
-                )}
-
-                {/* Tab: Chi tiết (xem riêng) */}
+                {/* Tab: Chi tiết */}
                 {tab === 'detail' && (
                   <>
                     <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
@@ -655,53 +576,134 @@ export default function JobDetail() {
                   </>
                 )}
 
-                {/* Tab: Kỹ năng yêu cầu */}
+                {/* Tab: Kỹ năng */}
                 {tab === 'skills' && (
                   <div className="space-y-4">
-                    {(mustHaveSkills.length || niceToHaveSkills.length) ? (
-                      <>
-                        <div style={softPanelStyle} className="p-4">
-                          <div className="text-sm font-medium text-red-700 mb-2">Kỹ năng bắt buộc (must-have)</div>
-                          {mustHaveSkills.length ? (
-                            <div className="flex flex-wrap gap-2">
-                              {mustHaveSkills.map((s, i) => (
-                                <span key={i} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full shadow-inner">{s}</span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-slate-500">Không có yêu cầu bắt buộc.</div>
-                          )}
+                    {mustHaveSkills.length > 0 ? (
+                      <div style={softPanelStyle} className="p-4">
+                        <div className="text-sm font-medium text-red-700 mb-2">Kỹ năng bắt buộc</div>
+                        <div className="flex flex-wrap gap-2">
+                          {mustHaveSkills.map((s, i) => (
+                            <span key={i} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full shadow-inner">
+                              {s}
+                            </span>
+                          ))}
                         </div>
-
-                        <div style={softPanelStyle} className="p-4">
-                          <div className="text-sm font-medium text-green-700 mb-2">Kỹ năng ưu tiên (nice-to-have)</div>
-                          {niceToHaveSkills.length ? (
-                            <div className="flex flex-wrap gap-2">
-                              {niceToHaveSkills.map((s, i) => (
-                                <span key={i} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full shadow-inner">{s}</span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-slate-500">Không có yêu cầu ưu tiên.</div>
-                          )}
-                        </div>
-                      </>
+                        <p className="text-xs text-gray-500 mt-3">
+                          💡 <strong>Lưu ý:</strong> Tất cả kỹ năng trên đều là bắt buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm khi AI chấm.
+                        </p>
+                      </div>
                     ) : (
                       <div style={softPanelStyle} className="p-4">
                         {fallbackSkills.length === 0 ? (
                           <div className="text-sm text-slate-500">Chưa có kỹ năng yêu cầu.</div>
                         ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {fallbackSkills.map((s, i) => (
-                              <span key={i} className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-full shadow-inner">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
+                          <>
+                            <div className="text-sm font-medium text-slate-700 mb-2">Kỹ năng yêu cầu</div>
+                            <div className="flex flex-wrap gap-2">
+                              {fallbackSkills.map((s, i) => (
+                                <span key={i} className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-full shadow-inner">
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* Tab: Thông tin công ty & Liên hệ */}
+                {tab === 'company' && (
+                  <section>
+                    <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                      <Building className="w-4 h-4 text-slate-500" />
+                      <h3 className="text-[17px] font-medium text-slate-800">Thông tin công ty & Liên hệ</h3>
+                    </div>
+                    <div className="mt-3" style={softPanelStyle}>
+                      <div className="p-6 space-y-5">
+                        {/* Company Name */}
+                        {companyInfo.name && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Công ty:</span>
+                            <span className="text-[16px] font-medium text-slate-900">{companyInfo.name}</span>
+                          </div>
+                        )}
+
+                        {/* Address */}
+                        {companyInfo.address && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Địa chỉ:</span>
+                            <div className="text-[15px] text-slate-900 leading-relaxed">{companyInfo.address}</div>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(companyInfo.address)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm font-medium mt-1"
+                            >
+                              <MapPin className="w-4 h-4" />
+                              Xem chỉ đường trên Google Maps
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Location */}
+                        {job?.location && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Khu vực:</span>
+                            <span className="text-[15px] text-slate-900">{job.location}</span>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {/* Phone */}
+                          {companyInfo.phone && (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Điện thoại:</span>
+                              <a
+                                href={`tel:${(companyInfo.phone || '').replace(/\s/g, '')}`}
+                                className="flex items-center gap-2 text-[15px] text-blue-600 hover:text-blue-700 font-medium"
+                              >
+                                <Phone className="w-4 h-4" />
+                                {companyInfo.phone}
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Email */}
+                          {companyInfo.email && (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Email:</span>
+                              <a
+                                href={`mailto:${companyInfo.email}`}
+                                className="flex items-center gap-2 text-[15px] text-blue-600 hover:text-blue-700 font-medium break-all"
+                              >
+                                <Mail className="w-4 h-4" />
+                                {companyInfo.email}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Website */}
+                        {companyInfo.website && (
+                          <div className="flex flex-col gap-1 pt-2 border-t border-slate-100">
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold mt-2">Website:</span>
+                            <a
+                              href={companyInfo.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-[15px] text-blue-600 hover:text-blue-700 font-medium break-all"
+                            >
+                              <Globe className="w-4 h-4" />
+                              {companyInfo.website}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
                 )}
               </div>
             </div>
