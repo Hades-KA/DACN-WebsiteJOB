@@ -1,3 +1,4 @@
+// client/src/components/Header.jsx
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -10,10 +11,16 @@ import {
   Building,
   BookOpen,
   FileText,
+  MessageCircle,
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
+import {
+  CandidateChatProvider,
+  useCandidateChat,
+} from '../contexts/CandidateChatContext';
+import CandidateChatFloating from './CandidateChatFloating';
 
-const Header = () => {
+function HeaderInner() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const navigate = useNavigate();
@@ -40,13 +47,20 @@ const Header = () => {
     setIsUserMenuOpen(false);
   };
 
-  // 4 mục điều hướng
   const navItems = [
     { to: '/jobs', label: 'Ngành nghề/Địa điểm', icon: SearchIcon },
     { to: '/companies', label: 'Công ty', icon: Building },
     { to: '/guide', label: 'Cẩm nang việc làm', icon: BookOpen },
     { to: '/cv-templates', label: 'Mẫu CV xin việc', icon: FileText },
   ];
+
+  // Chat context cho ỨNG VIÊN
+  const { toggle, unreadCount } = useCandidateChat();
+
+  const handleChatClick = () => {
+    // bật/tắt popup chat
+    toggle();
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-gray-100">
@@ -69,7 +83,11 @@ const Header = () => {
                   key={to}
                   to={to}
                   className={`inline-flex items-center gap-2 h-9 px-3 rounded-full text-sm transition-colors
-                    ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'}`}
+                    ${
+                      active
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span>{label}</span>
@@ -80,8 +98,25 @@ const Header = () => {
 
           {/* User Menu / Auth Buttons */}
           <div className="flex items-center space-x-3">
-            {/* Bell chỉ hiển thị khi đã đăng nhập (Header này không dùng cho /employer, /admin nên ok) */}
+            {/* Bell chỉ hiển thị khi đã đăng nhập */}
             {token && <NotificationBell />}
+
+            {/* Icon Tin nhắn cho ỨNG VIÊN (badge giống Messenger) */}
+            {token && userType === 'candidate' && (
+              <button
+                type="button"
+                onClick={handleChatClick}
+                className="relative inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-blue-50 text-gray-700 hover:text-blue-700 transition-colors"
+                title="Tin nhắn"
+              >
+                <MessageCircle className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[11px] font-semibold rounded-full bg-red-500 text-white px-1">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {token ? (
               <div className="relative">
@@ -94,13 +129,17 @@ const Header = () => {
                   <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                     <User className="w-4 h-4" />
                   </div>
-                  <span className="hidden md:block">{user.name || user.email || 'User'}</span>
+                  <span className="hidden md:block">
+                    {user.name || user.email || 'User'}
+                  </span>
                 </button>
 
                 {isUserMenuOpen && (
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
                     <div className="px-4 py-2 border-b border-gray-100">
-                      <p className="text-sm font-medium text-gray-900">{user.name || 'Tài khoản'}</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {user.name || 'Tài khoản'}
+                      </p>
                       <p className="text-xs text-gray-500">{user.email}</p>
                     </div>
                     <Link
@@ -159,7 +198,6 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden border-t border-gray-200 py-4">
             <nav className="flex flex-col space-y-2">
-              {/* 4 mục điều hướng */}
               {navItems.map(({ to, label, icon: Icon }) => {
                 const active = location.pathname.startsWith(to);
                 return (
@@ -167,7 +205,11 @@ const Header = () => {
                     key={to}
                     to={to}
                     className={`px-4 py-2 rounded-lg inline-flex items-center gap-2
-                      ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'}`}
+                      ${
+                        active
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
+                      }`}
                     onClick={() => setIsMenuOpen(false)}
                   >
                     <Icon className="w-4 h-4" />
@@ -195,7 +237,10 @@ const Header = () => {
                     Quản lý tài khoản
                   </Link>
                   <button
-                    onClick={() => { setIsMenuOpen(false); handleLogout(); }}
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      handleLogout();
+                    }}
                     className="px-4 py-2 text-gray-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg text-left"
                   >
                     Đăng xuất
@@ -225,6 +270,18 @@ const Header = () => {
       </div>
     </header>
   );
-};
+}
 
-export default Header;
+/**
+ * Header default export:
+ *  - Bọc inner bằng CandidateChatProvider
+ *  - Render CandidateChatFloating (popup góc phải)
+ */
+export default function Header() {
+  return (
+    <CandidateChatProvider>
+      <HeaderInner />
+      <CandidateChatFloating />
+    </CandidateChatProvider>
+  );
+}

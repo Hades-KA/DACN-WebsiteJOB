@@ -4,13 +4,16 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
-const rateLimit = require('express-rate-limit');
+const rateLimit = require('express-rate-limit'); // (chưa dùng nhưng để sẵn)
 const path = require('path');
 const fs = require('fs');
+const http = require('http'); 
 require('dotenv').config();
 const { sequelize, initDatabase } = require('./src/config/database');
+const { initSocket } = require('./src/realtime/socket'); 
 
 const app = express();
+const server = http.createServer(app); // ⬅️ dùng server HTTP cho socket
 const PORT = process.env.PORT || 5001;
 
 /* ============ Security (helmet + CORS) ============ */
@@ -131,6 +134,7 @@ app.use('/api/users', require('./src/routes/userRoutes'));
 app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/analytics', require('./src/routes/analyticsRoutes'));
+app.use('/api/chat', require('./src/routes/chatRoutes')); // ⬅️ route chat mới
 
 /* ============ Error handler ============ */
 app.use((err, _req, res, _next) => {
@@ -151,13 +155,19 @@ app.use('*', (req, res) => {
 const startServer = async () => {
   try {
     await initDatabase();
-    app.listen(PORT, () => {
+
+    // Khởi tạo Socket.IO
+    const io = initSocket(server, allowedOrigins);
+    app.set('io', io);
+
+    server.listen(PORT, () => {
       console.log(`🚀 Server đang chạy trên cổng ${PORT}`);
       console.log(`📊 Kiểm tra sức khỏe: http://localhost:${PORT}/health`);
       console.log(`🌍 Môi trường: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📁 Uploads served at /uploads from: ${uploadRoot}`);
       console.log(`🔍 Debug uploads: http://localhost:${PORT}/__debug/uploads`);
       console.log(`📈 Analytics API: http://localhost:${PORT}/api/analytics/*`);
+      console.log(`💬 Chat API: http://localhost:${PORT}/api/chat/*`);
     });
   } catch (error) {
     console.error('❌ Server không khởi động được:', error);

@@ -36,7 +36,8 @@ import JobPost from './pages/JobPost';
 import CompanyProfile from './pages/employer/CompanyProfile';
 import EmployerCVs from './pages/employer/CVManagement';
 import EmployerCandidates from './pages/employer/Candidates';
-import EmployerReports from './pages/employer/Reports'; 
+import EmployerReports from './pages/employer/Reports';
+import EmployerChat from './pages/employer/Chat'; // ⬅️ thêm
 
 // ===== Quản trị viên (Admin) =====
 import AdminLayout from './pages/admin/AdminLayout';
@@ -46,7 +47,7 @@ import AdminJobs from './pages/admin/Jobs';
 import AdminUsers from './pages/admin/Users';
 import AdminApplications from './pages/admin/Applications';
 import CompanyDetail from './pages/admin/CompanyDetail';
-import AdminJobDetail from './pages/admin/JobDetail'; // ✅ THÊM IMPORT NÀY
+import AdminJobDetail from './pages/admin/JobDetail';
 
 // ===== Thành phần chung =====
 import Header from './components/Header';
@@ -181,6 +182,7 @@ function Shell() {
             <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<EmployerCandidates />} />
             <Route path="reports" element={<EmployerReports />} />
+            <Route path="chat" element={<EmployerChat />} /> {/* ⬅️ route chat */}
           </Route>
 
           {/* ===== Admin ===== */}
@@ -193,7 +195,7 @@ function Shell() {
             <Route path="companies" element={<AdminCompanies />} />
             <Route path="companies/:id" element={<CompanyDetail />} />
             <Route path="jobs" element={<AdminJobs />} />
-            <Route path="jobs/:id" element={<AdminJobDetail />} /> {/* ✅ THÊM DÒNG NÀY */}
+            <Route path="jobs/:id" element={<AdminJobDetail />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="applications" element={<AdminApplications />} />
           </Route>

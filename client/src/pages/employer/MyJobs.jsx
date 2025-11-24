@@ -20,18 +20,32 @@ const jobCode = (index, page, pageSize) =>
 // Ngày đăng dạng VI
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
 
-// Badge trạng thái
-const StatusBadge = ({ approved }) => (
-  <span
-    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ${
-      approved
-        ? 'bg-green-50 text-green-700 ring-green-200'
-        : 'bg-gray-100 text-gray-600 ring-gray-200'
-    }`}
-  >
-    {approved ? 'Đã duyệt' : 'Đã khóa'}
-  </span>
-);
+// Badge trạng thái – xét deadline -> Hết hạn / Đã duyệt (vàng) / Đã khóa
+const StatusBadge = ({ isActive, deadline }) => {
+  const now = Date.now();
+  const deadlineTs = deadline ? new Date(deadline).getTime() : null;
+  const isExpired = deadlineTs != null && deadlineTs < now;
+
+  let text = 'Đã khóa';
+  let classes = 'bg-gray-100 text-gray-600 ring-gray-200';
+
+  if (isExpired) {
+    text = 'Hết hạn';
+    classes = 'bg-orange-50 text-orange-700 ring-orange-200';
+  } else if (isActive) {
+    text = 'Đã duyệt';
+    // ⬇️ đổi sang màu vàng (amber)
+    classes = 'bg-amber-50 text-amber-700 ring-amber-200';
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ${classes}`}
+    >
+      {text}
+    </span>
+  );
+};
 
 export default function MyJobs() {
   const navigate = useNavigate();
@@ -60,7 +74,8 @@ export default function MyJobs() {
     }
   };
 
-  const getEmployerId = (u) => u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
+  const getEmployerId = (u) =>
+    u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
 
   // Map tab -> tham số active cho API
   const activeParam = useMemo(() => {
@@ -77,12 +92,18 @@ export default function MyJobs() {
       try {
         const meRes = await api.get('/auth/me');
         u = meRes.data?.user || meRes.data || u;
-      } catch { /* dùng local nếu /auth/me lỗi */ }
+      } catch {
+        /* dùng local nếu /auth/me lỗi */
+      }
 
       const employerId = getEmployerId(u);
       if (!employerId) {
         setRows([]);
-        setPagination({ totalPages: 1, totalItems: 0, itemsPerPage: PAGE_SIZE });
+        setPagination({
+          totalPages: 1,
+          totalItems: 0,
+          itemsPerPage: PAGE_SIZE,
+        });
         return;
       }
 
@@ -102,7 +123,11 @@ export default function MyJobs() {
         };
 
       const finalRows =
-        tab === 'pending' || tab === 'violations' ? [] : (Array.isArray(data) ? data : []);
+        tab === 'pending' || tab === 'violations'
+          ? []
+          : Array.isArray(data)
+          ? data
+          : [];
 
       setRows(finalRows);
       setPagination(pag);
@@ -123,19 +148,24 @@ export default function MyJobs() {
     await load(to);
   };
 
-  // Xóa (UI y chang video). Nếu DELETE bị chặn (FK/timeout) -> fallback đóng tin để demo không kẹt
+  // Xóa (nếu DELETE lỗi thì fallback đóng tin)
   const handleDelete = async (job) => {
-    if (!window.confirm(`Xóa tin "${job.title}"? Hành động không thể hoàn tác.`)) return;
+    if (!window.confirm(`Xóa tin "${job.title}"? Hành động không thể hoàn tác.`))
+      return;
     try {
       setWorkingId(job.id);
-      await jobService.deleteJob(job.id);    // cố xóa cứng
+      await jobService.deleteJob(job.id);
       await load(page);
     } catch (e) {
-      // Fallback mềm: đóng tin nếu xóa cứng thất bại
       try {
-        await jobService.updateJobStatus(job.id, { isActive: false, isFeatured: false });
+        await jobService.updateJobStatus(job.id, {
+          isActive: false,
+          isFeatured: false,
+        });
         await load(page);
-        alert('Không xóa được do ràng buộc dữ liệu. Tin đã được đóng (ẩn) để thay thế.');
+        alert(
+          'Không xóa được do ràng buộc dữ liệu. Tin đã được đóng (ẩn) để thay thế.'
+        );
       } catch {
         alert(e?.response?.data?.message || 'Xóa thất bại');
       }
@@ -144,13 +174,11 @@ export default function MyJobs() {
     }
   };
 
-  // Mở modal tạo tin mới
   const handleCreateNew = () => {
     setEditingJob(null);
     setModalOpen(true);
   };
 
-  // Mở modal chỉnh sửa
   const handleEdit = (job) => {
     setEditingJob(job);
     setModalOpen(true);
@@ -161,7 +189,9 @@ export default function MyJobs() {
       <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5">
         {/* Header */}
         <div className="px-8 py-4 border-b flex items-center justify-between">
-          <div className="text-2xl font-semibold tracking-tight text-slate-900">Quản lý tin tuyển dụng</div>
+          <div className="text-2xl font-semibold tracking-tight text-slate-900">
+            Quản lý tin tuyển dụng
+          </div>
           <button
             onClick={handleCreateNew}
             className="px-3.5 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
@@ -189,7 +219,7 @@ export default function MyJobs() {
           </div>
         </div>
 
-        {/* Bảng (đúng cột như demo) */}
+        {/* Bảng */}
         <div className="px-8 pb-0 overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
@@ -218,16 +248,25 @@ export default function MyJobs() {
                 </tr>
               ) : (
                 rows.map((j, idx) => (
-                  <tr key={j.id} className="border-b last:border-b-0 hover:bg-gray-50/60">
+                  <tr
+                    key={j.id}
+                    className="border-b last:border-b-0 hover:bg-gray-50/60"
+                  >
                     <td className="py-2 px-3 align-middle">
-                      {jobCode(idx, page, pagination.itemsPerPage || PAGE_SIZE)}
+                      {jobCode(
+                        idx,
+                        page,
+                        pagination.itemsPerPage || PAGE_SIZE
+                      )}
                     </td>
 
                     <td className="py-2 px-3 align-middle">
                       <div className="font-medium text-gray-900 truncate leading-[18px]">
                         {j.title}
                       </div>
-                      <div className="text-xs text-gray-500 truncate">{j.location || ''}</div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {j.location || ''}
+                      </div>
                     </td>
 
                     <td className="py-2 px-3 text-center align-middle">
@@ -243,7 +282,10 @@ export default function MyJobs() {
                     </td>
 
                     <td className="py-2 px-3 text-center align-middle">
-                      <StatusBadge approved={!!j.isActive} />
+                      <StatusBadge
+                        isActive={!!j.isActive}
+                        deadline={j.deadline}
+                      />
                     </td>
 
                     <td className="py-2 px-3 align-middle">
@@ -281,7 +323,7 @@ export default function MyJobs() {
           </table>
         </div>
 
-        {/* Phân trang (mũi tên + số trang) */}
+        {/* Phân trang */}
         <div className="px-8 py-2 border-t flex items-center justify-end text-sm text-gray-600">
           <div className="flex items-center gap-2">
             <button

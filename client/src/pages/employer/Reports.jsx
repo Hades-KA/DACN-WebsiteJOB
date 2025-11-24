@@ -48,6 +48,7 @@ const STATUS_VI = {
   shortlisted: 'Sơ tuyển',
   interviewed: 'Phỏng vấn',
   accepted: 'Đã nhận',
+  rejected: 'Từ chối',        // ✅ thêm trạng thái Từ chối
 };
 
 /* ============== Components ============== */
@@ -149,7 +150,6 @@ export default function Reports() {
     setError('');
     
     try {
-      // All-time cho các KPI tổng; Trends mặc định 12 tháng
       const [overviewRes, aiPerfRes, funnelRes, trendsRes, topJobsRes] = await Promise.all([
         analyticsService.getOverview(),
         analyticsService.getAIPerformance(),
@@ -184,7 +184,6 @@ export default function Reports() {
     }));
   }, [trends]);
 
-  // Check if we have trends data
   const hasTrends = trendsSafe && trendsSafe.length > 0;
 
   // Phân bổ trạng thái (Pie) – Việt hóa nhãn
@@ -211,18 +210,61 @@ export default function Reports() {
     return data.filter(item => item.value > 0);
   }, [overview]);
 
-  // Phễu tuyển dụng – thêm nhãn tiếng Việt và tỷ lệ giữ lại
+  /* ============== Phễu tuyển dụng + Từ chối ============== */
   const funnelWithRates = useMemo(() => {
-    if (!funnel.length) return [];
-    const total = toNumber(funnel[0]?.count) || 1;
-    return funnel.map(stage => ({
-      ...stage,
-      count: toNumber(stage.count),
-      avgDays: toNumber(stage.avgDays),
-      statusLabel: STATUS_VI[stage.status] || stage.status,
-      rate: ((toNumber(stage.count) / total) * 100).toFixed(1),
-    }));
-  }, [funnel]);
+    const stages = [];
+
+    // Nếu API funnel có dữ liệu
+    if (funnel.length) {
+      const total = toNumber(funnel[0]?.count) || 1;
+
+      funnel.forEach(stage => {
+        const count = toNumber(stage.count);
+        const avgDays = toNumber(stage.avgDays);
+
+        stages.push({
+          ...stage,
+          count,
+          avgDays,
+          statusLabel: STATUS_VI[stage.status] || stage.status,
+          rate: ((count / total) * 100).toFixed(1),
+        });
+      });
+
+      // Nếu có số lượng rejected trong overview nhưng chưa có stage rejected trong funnel
+      const rejectedCount = toNumber(overview?.statusCounts?.rejected);
+      const hasRejectedInFunnel = stages.some(s => s.status === 'rejected');
+
+      if (rejectedCount > 0 && !hasRejectedInFunnel) {
+        stages.push({
+          status: 'rejected',
+          count: rejectedCount,
+          avgDays: 0,
+          statusLabel: STATUS_VI.rejected,
+          rate: ((rejectedCount / total) * 100).toFixed(1),
+        });
+      }
+
+      return stages;
+    }
+
+    // Fallback: không có funnel, dựng từ overview.statusCounts
+    const counts = overview?.statusCounts || {};
+    const totalApps = toNumber(overview?.totalApplications) || 1;
+
+    Object.entries(counts).forEach(([status, countRaw]) => {
+      const count = toNumber(countRaw);
+      stages.push({
+        status,
+        count,
+        avgDays: 0,
+        statusLabel: STATUS_VI[status] || status,
+        rate: ((count / totalApps) * 100).toFixed(1),
+      });
+    });
+
+    return stages;
+  }, [funnel, overview]);
 
   // Xác định max cho trục X biểu đồ phễu để không dư khoảng trắng
   const funnelXMax = useMemo(() => {
@@ -240,10 +282,9 @@ export default function Reports() {
     return arr.map(a => ({ ...a, accuracy: toNumber(a.accuracy) }));
   }, [aiPerformance]);
 
-  // Check if we have accuracy data
   const hasAccuracy = accuracyData && accuracyData.some(a => a.accuracy > 0);
 
-  // Tổng ứng viên có score (ưu tiên meta.totalApps → fallback totalScored → totalApplications)
+  // Tổng ứng viên có score
   const totalAppsForSkills = useMemo(() => {
     const metaTotal = toNumber(aiPerformance?.meta?.totalApps);
     if (metaTotal) return metaTotal;
@@ -531,7 +572,7 @@ export default function Reports() {
                 formatter={(value, name) => {
                   if (name === 'count') return [value, 'Số lượng'];
                   if (name === 'avgDays') return [value + ' ngày', 'Thời gian TB'];
-                  if (name === 'rate') return [value + '%', 'Tỷ lệ giữ lại'];
+                  if (name === 'rate') return [value + '%', 'Tỷ lệ'];
                   return [value, name];
                 }}
               />
@@ -542,13 +583,20 @@ export default function Reports() {
           </ResponsiveContainer>
         </div>
 
+        {/* Hàng số liệu từng stage */}
         <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-flow-col lg:auto-cols-fr gap-4">
           {funnelWithRates.map((stage, index) => (
             <div key={index} className="text-center">
               <div className="text-2xl font-bold text-slate-900">{stage.count}</div>
               <div className="text-xs text-slate-500 mt-1">{stage.statusLabel}</div>
-              <div className="text-xs text-green-600 mt-1">
-                {stage.rate}% tỷ lệ giữ lại
+              <div
+                className={`text-xs mt-1 ${
+                  stage.status === 'rejected' ? 'text-rose-600' : 'text-green-600'
+                }`}
+              >
+                {stage.status === 'rejected'
+                  ? `${stage.rate}% bị từ chối`
+                  : `${stage.rate}% tỷ lệ giữ lại`}
               </div>
             </div>
           ))}

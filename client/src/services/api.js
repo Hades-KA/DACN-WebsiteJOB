@@ -84,7 +84,8 @@ export const jobService = {
   applyJob: (jobId, applicationData) => api.post(`/jobs/${normId(jobId)}/apply`, applicationData),
   getJobApplications: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
   updateJobStatus: (id, payload) => api.patch(`/jobs/${normId(id)}/status`, payload),
-  rescoreJobApplications: (jobId, body = {}) => api.post(`/jobs/${normId(jobId)}/rescore-applications`, body),
+  rescoreJobApplications: (jobId, body = {}) =>
+    api.post(`/jobs/${normId(jobId)}/rescore-applications`, body),
 };
 
 // ========== CV ==========
@@ -127,13 +128,19 @@ export const dashboardService = {
 // ========== AI ==========
 export const aiService = {
   analyzeCV: (cvId) => api.post(`/ai/analyze-cv/${normId(cvId)}`),
-  predictPerformance: (candidateId, jobId) => api.post('/ai/predict-performance', { candidateId, jobId }),
-  getJobRecommendations: (candidateId) => api.get(`/ai/job-recommendations/${normId(candidateId)}`),
-  getCandidateRecommendations: (jobId) => api.get(`/ai/candidate-recommendations/${normId(jobId)}`),
+  predictPerformance: (candidateId, jobId) =>
+    api.post('/ai/predict-performance', { candidateId, jobId }),
+  getJobRecommendations: (candidateId) =>
+    api.get(`/ai/job-recommendations/${normId(candidateId)}`),
+  getCandidateRecommendations: (jobId) =>
+    api.get(`/ai/candidate-recommendations/${normId(jobId)}`),
   analyzeJobMatch: (cvId, jobId) => api.post('/ai/analyze-job-match', { cvId, jobId }),
-  getSkillGaps: (candidateId, jobId) => api.get(`/ai/skill-gaps/${normId(candidateId)}/${normId(jobId)}`),
-  generateJobDescription: (jobData) => api.post('/ai/generate-job-description', jobData),
-  optimizeJobPosting: (jobId) => api.post(`/ai/optimize-job-posting/${normId(jobId)}`),
+  getSkillGaps: (candidateId, jobId) =>
+    api.get(`/ai/skill-gaps/${normId(candidateId)}/${normId(jobId)}`),
+  generateJobDescription: (jobData) =>
+    api.post('/ai/generate-job-description', jobData),
+  optimizeJobPosting: (jobId) =>
+    api.post(`/ai/optimize-job-posting/${normId(jobId)}`),
 };
 
 // ========== Companies ==========
@@ -148,21 +155,48 @@ export const companyService = {
   uploadLogo: (id, file) => {
     const form = new FormData();
     form.append('logo', file);
-    return api.post(`/companies/${normId(id)}/logo`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return api.post(`/companies/${normId(id)}/logo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
   },
 };
 
 // ========== Applications ==========
 export const applicationService = {
   getApplications: (params = {}) => api.get('/applications', { params }),
+
   getApplicationById: (id) => api.get(`/applications/${normId(id)}`),
   createApplication: (applicationData) => api.post('/applications', applicationData),
-  updateApplication: (id, applicationData) => api.put(`/applications/${normId(id)}`, applicationData),
+  updateApplication: (id, applicationData) =>
+    api.put(`/applications/${normId(id)}`, applicationData),
   deleteApplication: (id) => api.delete(`/applications/${normId(id)}`),
-  updateApplicationStatus: (id, status) => api.put(`/applications/${normId(id)}/status`, { status }),
-  getApplicationsByJob: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
-  getApplicationsByCandidate: (candidateId) => api.get(`/applications/candidate/${normId(candidateId)}`),
-  getMyApplications: (params = {}) => api.get('/applications/candidate/me', { params }),
+
+  getJobApplications: (jobId, params = {}) =>
+    api.get(`/jobs/${normId(jobId)}/applications`, { params }),
+
+  updateApplicationStatus: (id, statusOrPayload) => {
+    let body = {};
+    if (typeof statusOrPayload === 'string') {
+      body = { status: statusOrPayload };
+    } else if (statusOrPayload && typeof statusOrPayload === 'object') {
+      const { status, interviewTime, ...rest } = statusOrPayload;
+      body = {
+        ...(status ? { status } : {}),
+        ...(interviewTime ? { interviewTime } : {}),
+        ...rest,
+      };
+    } else {
+      body = { status: 'reviewing' };
+    }
+    return api.put(`/applications/${normId(id)}/status`, body);
+  },
+
+  getApplicationsByJob: (jobId) =>
+    api.get(`/jobs/${normId(jobId)}/applications`),
+  getApplicationsByCandidate: (candidateId) =>
+    api.get(`/applications/candidate/${normId(candidateId)}`),
+  getMyApplications: (params = {}) =>
+    api.get('/applications/candidate/me', { params }),
 };
 
 // ========== Notifications ==========
@@ -176,40 +210,44 @@ export const notificationService = {
 
 // ========== Files ==========
 export const fileService = {
-  uploadFile: (formData) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  downloadFile: (id) => api.get(`/files/${normId(id)}/download`, { responseType: 'blob' }),
+  uploadFile: (formData) =>
+    api.post('/files/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  downloadFile: (id) =>
+    api.get(`/files/${normId(id)}/download`, { responseType: 'blob' }),
   deleteFile: (id) => api.delete(`/files/${normId(id)}`),
   getFileInfo: (id) => api.get(`/files/${normId(id)}`),
 };
 
 // ========== Admin ==========
 export const adminService = {
-  // Users
   listUsers: (params = {}) => api.get('/admin/users', { params }),
-  updateUserRole: (id, userType) => api.patch(`/admin/users/${normId(id)}/role`, { userType }),
-  updateUserStatus: (id, isActive) => api.patch(`/admin/users/${normId(id)}/status`, { isActive }),
-  blockUser: (id, reason) => api.patch(`/admin/users/${normId(id)}/block`, { reason }),
+  updateUserRole: (id, userType) =>
+    api.patch(`/admin/users/${normId(id)}/role`, { userType }),
+  updateUserStatus: (id, isActive) =>
+    api.patch(`/admin/users/${normId(id)}/status`, { isActive }),
+  blockUser: (id, reason) =>
+    api.patch(`/admin/users/${normId(id)}/block`, { reason }),
   unblockUser: (id) => api.patch(`/admin/users/${normId(id)}/unblock`),
 
-  // Jobs
   listJobs: (params = {}) => api.get('/admin/jobs', { params }),
-  updateJobStatus: (id, isActive) => api.patch(`/admin/jobs/${normId(id)}/status`, { isActive }),
-  updateJobFeatured: (id, isFeatured) => api.patch(`/admin/jobs/${normId(id)}/featured`, { isFeatured }),
+  updateJobStatus: (id, isActive) =>
+    api.patch(`/admin/jobs/${normId(id)}/status`, { isActive }),
+  updateJobFeatured: (id, isFeatured) =>
+    api.patch(`/admin/jobs/${normId(id)}/featured`, { isFeatured }),
 
-  // Companies
   listCompanies: (params = {}) => api.get('/admin/companies', { params }),
-  updateCompanyStatus: (id, isActive) => api.patch(`/admin/companies/${normId(id)}/status`, { isActive }),
-  getCompanyById: (id) => api.get(`/admin/companies/${normId(id)}`), // ✅ thêm để dùng cho CompanyDetail
+  updateCompanyStatus: (id, isActive) =>
+    api.patch(`/admin/companies/${normId(id)}/status`, { isActive }),
+  getCompanyById: (id) => api.get(`/admin/companies/${normId(id)}`),
 
-  // Stats & Activities
   getStats: () => api.get('/admin/stats'),
   getActivities: (params = {}) => api.get('/admin/activities', { params }),
 
-  // Applications
   getApplications: (params = {}) => api.get('/admin/applications', { params }),
   getApplicationById: (id) => api.get(`/admin/applications/${normId(id)}`),
 
-  // Analytics
   getTrends: (params = {}) => api.get('/analytics/trends', { params }),
   getScoreDistribution: () => api.get('/analytics/score-distribution'),
 };
@@ -221,6 +259,16 @@ export const analyticsService = {
   getFunnel: () => api.get('/analytics/funnel'),
   getTrends: (params = {}) => api.get('/analytics/trends', { params }),
   getTopJobs: () => api.get('/analytics/top-jobs'),
+};
+
+// ========== Chat ==========
+export const chatService = {
+  getConversations: (params = {}) => api.get('/chat/conversations', { params }),
+  openConversation: (payload) => api.post('/chat/open', payload),
+  getMessages: (conversationId, params = {}) =>
+    api.get(`/chat/conversations/${normId(conversationId)}/messages`, { params }),
+  markAsRead: (conversationId) =>
+    api.post(`/chat/conversations/${normId(conversationId)}/read`),
 };
 
 export default api;

@@ -1,10 +1,16 @@
-import React, { useMemo, useState, useEffect, createContext, useContext } from 'react';
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+} from 'react';
 import { applicationService, cvService } from '../../services/api';
 import { toast } from 'react-toastify';
 import { Download, Edit2, Trash2, MessageCircle } from 'lucide-react';
+import { useEmployerChat } from '../../contexts/EmployerChatContext';
 
-const CANCEL_TARGET_STATUS = import.meta?.env?.VITE_CANCEL_BACK_TO_STATUS || 'reviewing';
-
+const CANCEL_TARGET_STATUS = 'shortlisted';
 // --- UTILS ---
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -88,7 +94,7 @@ const parseSkillsFlexible = (skills) => {
   return [];
 };
 
-// --- LOGIC LƯU TRỮ THEO USER (FIX LỖI HIỂN THỊ LỊCH CỦA USER KHÁC) ---
+// --- LOGIC LƯU TRỮ THEO USER ---
 const getStorageKey = () => {
   try {
     const possibleKeys = ['user', 'currentUser', 'profile', 'employer', 'auth-storage'];
@@ -135,6 +141,7 @@ const InterviewProvider = ({ children }) => {
     }
   }, [events, storageKey]);
 
+  // Gửi kèm interviewTime + interviewMode khi tạo lịch
   const addEvent = async (event) => {
     const existing = events.find((e) => e.applicationId === event.applicationId);
     if (existing) {
@@ -142,13 +149,29 @@ const InterviewProvider = ({ children }) => {
       return false;
     }
     try {
-      await applicationService.updateApplicationStatus(event.applicationId, 'interviewed');
+      let interviewTime = null;
+      if (event.dateKey && event.time) {
+        const dt = new Date(`${event.dateKey}T${event.time}:00`);
+        if (!isNaN(dt.getTime())) {
+          interviewTime = dt.toISOString();
+        }
+      }
+
+      await applicationService.updateApplicationStatus(event.applicationId, {
+        status: 'interviewed',
+        interviewTime: interviewTime,
+        interviewMode: event.mode, 
+      });
+
       setEvents((prev) => [...prev, event]);
       setReloadTrigger((prev) => prev + 1);
-      toast.success('Đã tạo lịch phỏng vấn và chuyển sang trạng thái "Phỏng vấn"!');
+      toast.success('Đã tạo lịch phỏng vấn và gửi email mời thành công!');
       return true;
     } catch (error) {
-      toast.error('Tạo lịch phỏng vấn thất bại: ' + (error?.response?.data?.message || error.message));
+      toast.error(
+        'Tạo lịch phỏng vấn thất bại: ' +
+          (error?.response?.data?.message || error.message)
+      );
       return false;
     }
   };
@@ -162,12 +185,19 @@ const InterviewProvider = ({ children }) => {
     const event = events.find((e) => e.id === eventId);
     if (!event) return false;
     try {
-      const remainingEvents = events.filter((e) => e.id !== eventId && e.applicationId === event.applicationId);
+      const remainingEvents = events.filter(
+        (e) => e.id !== eventId && e.applicationId === event.applicationId
+      );
       setEvents((prev) => prev.filter((e) => e.id !== eventId));
       if (remainingEvents.length === 0) {
-        await applicationService.updateApplicationStatus(event.applicationId, CANCEL_TARGET_STATUS);
+        await applicationService.updateApplicationStatus(
+          event.applicationId,
+          CANCEL_TARGET_STATUS
+        );
         toast.success(
-          `Đã xóa lịch phỏng vấn và chuyển về "${CANCEL_TARGET_STATUS === 'shortlisted' ? 'Duyệt sơ tuyển' : 'Quản lý CV'}"!`
+          `Đã xóa lịch phỏng vấn và chuyển về "${
+            CANCEL_TARGET_STATUS === 'shortlisted' ? 'Duyệt sơ tuyển' : 'Quản lý CV'
+          }"!`
         );
       } else {
         toast.success('Đã xóa lịch phỏng vấn!');
@@ -176,13 +206,18 @@ const InterviewProvider = ({ children }) => {
       return true;
     } catch (error) {
       setEvents((prev) => [...prev, event]);
-      toast.error('Xóa lịch phỏng vấn thất bại: ' + (error?.response?.data?.message || error.message));
+      toast.error(
+        'Xóa lịch phỏng vấn thất bại: ' +
+          (error?.response?.data?.message || error.message)
+      );
       return false;
     }
   };
 
-  const getEventsByApplication = (applicationId) => events.filter((e) => e.applicationId === applicationId);
-  const clearEventsByApplication = (applicationId) => setEvents((prev) => prev.filter((e) => e.applicationId !== applicationId));
+  const getEventsByApplication = (applicationId) =>
+    events.filter((e) => e.applicationId === applicationId);
+  const clearEventsByApplication = (applicationId) =>
+    setEvents((prev) => prev.filter((e) => e.applicationId !== applicationId));
   const forceReload = () => setReloadTrigger((prev) => prev + 1);
 
   return (
@@ -312,7 +347,6 @@ const Tabs = ({ active, onChange }) => {
   const tabs = useMemo(
     () => [
       { key: 'list', label: 'Danh sách ứng viên' },
-      { key: 'search', label: 'Tìm kiếm ứng viên' },
       { key: 'interview', label: 'Lịch phỏng vấn' },
     ],
     []
@@ -325,108 +359,14 @@ const Tabs = ({ active, onChange }) => {
             key={t.key}
             onClick={() => onChange(t.key)}
             className={`-mb-px pb-3 text-sm font-medium transition-colors ${
-              active === t.key ? 'text-slate-900 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'
+              active === t.key
+                ? 'text-slate-900 border-b-2 border-blue-600'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {t.label}
           </button>
         ))}
-      </div>
-    </div>
-  );
-};
-
-const SearchTab = ({ jobPosts = [], cities = [], levels = [], jobTypes = [] }) => {
-  const [filters, setFilters] = useState({ jobPost: '', city: '', level: '', jobType: '' });
-  const [results, setResults] = useState([]);
-
-  const toOption = (x) => {
-    if (typeof x === 'string') return { value: x, label: x };
-    const value = x?.id ?? x?.value ?? '';
-    const label = x?.title ?? x?.name ?? x?.label ?? String(value);
-    return { value: String(value), label: String(label || '') };
-  };
-
-  const update = (k) => (e) => {
-    setFilters({ ...filters, [k]: e.target.value });
-    setResults([]);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-        <div className="p-4 border-b border-slate-200">
-          <div className="grid gap-3 lg:grid-cols-3">
-            <div className="lg:col-span-3">
-              <select
-                value={filters.jobPost}
-                onChange={update('jobPost')}
-                disabled={!jobPosts.length}
-                className="h-10 w-full px-3 rounded-md border border-slate-300 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">
-                  {jobPosts.length ? 'Chọn tin tuyển dụng' : 'Bạn chưa có tin tuyển dụng'}
-                </option>
-                {jobPosts.map((jp) => {
-                  const o = toOption(jp);
-                  return (
-                    <option key={`${o.value}-${o.label}`} value={o.value}>
-                      {o.label}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div>
-              <select
-                value={filters.city}
-                onChange={update('city')}
-                className="h-10 w-full px-3 rounded-md border border-slate-300"
-              >
-                <option value="">Tỉnh thành</option>
-                {cities.map((c) => (
-                  <option key={c?.id ?? c} value={c?.id ?? c}>
-                    {c?.name ?? c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <select
-                value={filters.level}
-                onChange={update('level')}
-                className="h-10 w-full px-3 rounded-md border border-slate-300"
-              >
-                <option value="">Cấp bậc</option>
-                {levels.map((l) => (
-                  <option key={l?.id ?? l} value={l?.id ?? l}>
-                    {l?.name ?? l}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <select
-                value={filters.jobType}
-                onChange={update('jobType')}
-                className="h-9 w-full px-3 rounded-md border border-slate-300"
-              >
-                <option value="">Loại công việc</option>
-                {jobTypes.map((t) => (
-                  <option key={t?.id ?? t} value={t?.id ?? t}>
-                    {t?.name ?? t}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="px-4 py-16 flex items-center justify-center text-slate-400">
-          <div className="text-center">
-            <BriefcaseIcon className="mx-auto mb-2 w-10 h-10 opacity-60" />
-            <div className="text-sm">No data</div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -466,7 +406,7 @@ const MonthView = ({ year, month, todayKey, eventsByDay, onCreateRange }) => {
     selEnd &&
     (selStart < selEnd ? selStart : selEnd) <= k &&
     k <= (selStart < selEnd ? selEnd : selStart);
-  
+
   const endDrag = (key) => {
     if (!dragging) return;
     const a = selStart < key ? selStart : key;
@@ -591,7 +531,14 @@ const YearView = ({ year, todayKey, eventsByDay }) => (
   </div>
 );
 
-function InterviewFormModal({ open, onClose, defaultDateKey, onSubmit, applications = [], editEvent = null }) {
+function InterviewFormModal({
+  open,
+  onClose,
+  defaultDateKey,
+  onSubmit,
+  applications = [],
+  editEvent = null,
+}) {
   const [applicationId, setApplicationId] = useState('');
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(defaultDateKey || toKey(new Date()));
@@ -624,8 +571,7 @@ function InterviewFormModal({ open, onClose, defaultDateKey, onSubmit, applicati
 
   const times = useMemo(() => {
     const arr = [];
-    for (let h = 7; h <= 21; h++)
-      for (let m = 0; m < 60; m += 30) arr.push(`${pad(h)}:${pad(m)}`);
+    for (let h = 7; h <= 21; h++) for (let m = 0; m < 60; m += 30) arr.push(`${pad(h)}:${pad(m)}`);
     return arr;
   }, []);
 
@@ -997,7 +943,9 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
                 <div className="grid md:grid-cols-2 gap-x-12 gap-y-8">
                   <div className="space-y-8">
                     <div>
-                      <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">Thông tin liên hệ</h4>
+                      <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">
+                        Thông tin liên hệ
+                      </h4>
                       <div className="space-y-4">
                         <DetailItem icon={<EmailIcon />} label="Email">
                           {candidate.email}
@@ -1014,7 +962,9 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
                       </div>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">Học vấn & Kinh nghiệm</h4>
+                      <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">
+                        Học vấn & Kinh nghiệm
+                      </h4>
                       <div className="space-y-4">
                         <DetailItem icon={<GraduationCapIcon />} label="Trình độ học vấn">
                           {profile.educationLevel}
@@ -1052,11 +1002,16 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
               )}
               {activeTab === 'experience' && (
                 <div>
-                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">Kinh nghiệm làm việc</h4>
+                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">
+                    Kinh nghiệm làm việc
+                  </h4>
                   {workExps.length > 0 ? (
                     <div className="space-y-6">
                       {workExps.map((exp, idx) => (
-                        <div key={idx} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
+                        <div
+                          key={idx}
+                          className="border-b border-slate-100 pb-4 last:border-0 last:pb-0"
+                        >
                           <div className="font-semibold text-slate-900">
                             {exp.title || `Kinh nghiệm #${idx + 1}`}
                           </div>
@@ -1076,13 +1031,17 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-sm text-slate-500">Chưa cập nhật kinh nghiệm làm việc.</div>
+                    <div className="text-sm text-slate-500">
+                      Chưa cập nhật kinh nghiệm làm việc.
+                    </div>
                   )}
                 </div>
               )}
               {activeTab === 'attachments' && (
                 <div>
-                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">Tài liệu đính kèm</h4>
+                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">
+                    Tài liệu đính kèm
+                  </h4>
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div className="text-sm text-slate-700">
                       {cvObj?.fileName ? (
@@ -1113,7 +1072,9 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
               )}
               {activeTab === 'interview' && (
                 <div>
-                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">Lịch phỏng vấn</h4>
+                  <h4 className="font-semibold text-slate-800 mb-4 border-b pb-2">
+                    Lịch phỏng vấn
+                  </h4>
                   {myEvents.length ? (
                     <ul className="space-y-3">
                       {myEvents.map((ev) => (
@@ -1209,6 +1170,7 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
 }
 
 const AcceptedListTab = () => {
+  const { openWithApplication } = useEmployerChat(); // dùng context popup chat
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
@@ -1329,8 +1291,10 @@ const AcceptedListTab = () => {
       setCancelLoadingId(null);
     }
   };
+
   const handleChat = (application) => {
-    toast.info('Tính năng chat đang được phát triển...');
+    // MỞ POPUP CHAT VỚI ỨNG VIÊN TƯƠNG ỨNG
+    openWithApplication(application);
   };
 
   const getStatusBadge = (status) => {
@@ -1503,7 +1467,9 @@ const AcceptedListTab = () => {
             <button
               className="h-8 w-8 grid place-items-center rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-50 bg-white text-slate-600"
               onClick={() =>
-                setPage((p) => Math.min(Math.max(1, Math.ceil(items.length / PAGE_SIZE)), p + 1))
+                setPage((p) =>
+                  Math.min(Math.max(1, Math.ceil(items.length / PAGE_SIZE)), p + 1)
+                )
               }
               disabled={pageSafe >= Math.max(1, Math.ceil(items.length / PAGE_SIZE))}
             >
@@ -1680,12 +1646,8 @@ const InterviewTab = () => {
 
 function CandidatesContent() {
   const [active, setActive] = useState('list');
-  const jobPosts = [];
-  const cities = [];
-  const levels = [];
-  const jobTypes = [];
+
   return (
-    // CHỈNH SỬA: Bỏ lớp bọc px-3 sm:px-4... và áp dụng style của CVManagement trực tiếp vào đây
     <div className="w-full bg-gradient-to-br from-white to-slate-50 rounded-xl shadow-sm ring-1 ring-slate-200">
       <div className="px-6 pt-6 pb-4">
         <div className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -1700,16 +1662,6 @@ function CandidatesContent() {
         {active === 'list' && (
           <div className="px-6 pt-4">
             <AcceptedListTab />
-          </div>
-        )}
-        {active === 'search' && (
-          <div className="px-6 pt-4">
-            <SearchTab
-              jobPosts={jobPosts}
-              cities={cities}
-              levels={levels}
-              jobTypes={jobTypes}
-            />
           </div>
         )}
         {active === 'interview' && (
