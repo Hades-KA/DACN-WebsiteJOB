@@ -120,9 +120,10 @@ export default function Applicants() {
     }
   };
 
-  // Không hiển thị những đơn đã bị từ chối
-  const visibleApps = applications.filter((a) => a.status !== 'rejected');
-
+  // Tạm thời hiện tất cả (kể cả rejected) để test
+  const visibleApps = applications; 
+  // const visibleApps = applications.filter((a) => a.status !== 'rejected');
+  
   const matchedApps = visibleApps
     .filter((a) => (a.aiScore?.scoreTotal || 0) >= 50)
     .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
@@ -181,7 +182,8 @@ export default function Applicants() {
 
     for (const app of notMatchedApps) {
       try {
-        await applicationService.updateApplicationStatus(app.id, 'rejected');
+        // Fix: Gửi object để trigger email
+        await applicationService.updateApplicationStatus(app.id, { status: 'rejected' });
         ok++;
       } catch (e) {
         console.error('Reject failed for app', app.id, e);
@@ -197,20 +199,28 @@ export default function Applicants() {
     setRejectAllLoading(false);
   };
 
-  // NÚT RESCORE TẤT CẢ
+  // Rescore với thời gian chờ 10s
   const rescoreAll = async () => {
     if (!window.confirm('Chấm lại điểm tất cả ứng viên của job này?')) return;
+    
     try {
-      setRescoreAllLoading(true);
+      setRescoreAllLoading(true); // Bắt đầu quay loading
+      
       await jobService.rescoreJobApplications(idFromRoute, {
-        onlyMissing: true, // chỉ chạy cái thiếu/lỗi/cũ
-        staleMinutes: 1440, // định nghĩa "cũ": 24h
+        onlyMissing: true, 
+        staleMinutes: 1440, 
       });
-      alert('Đã gửi yêu cầu chấm lại điểm. Vui lòng đợi vài giây...');
-      setTimeout(() => loadData(idFromRoute), 3000);
+
+      alert('Đã gửi yêu cầu. Hệ thống đang chấm điểm, vui lòng đợi khoảng 10 giây...');
+
+      // Đợi 10 giây rồi mới load lại data và tắt loading
+      setTimeout(async () => {
+        await loadData(idFromRoute);
+        setRescoreAllLoading(false);
+      }, 10000);
+
     } catch (e) {
       alert(e.response?.data?.message || 'Rescore tất cả thất bại');
-    } finally {
       setRescoreAllLoading(false);
     }
   };
@@ -251,7 +261,7 @@ export default function Applicants() {
               title="Chấm lại điểm tất cả ứng viên"
             >
               <RefreshCw className={`w-4 h-4 ${rescoreAllLoading ? 'animate-spin' : ''}`} />
-              {rescoreAllLoading ? 'Đang rescore...' : 'Rescore tất cả'}
+              {rescoreAllLoading ? 'Đang xử lý AI...' : 'Rescore tất cả'}
             </button>
             <Link
               to="/employer/jobs"

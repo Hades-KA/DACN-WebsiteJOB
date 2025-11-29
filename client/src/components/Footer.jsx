@@ -1,134 +1,123 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Briefcase, Mail, Phone, MapPin, Facebook, Twitter, Linkedin, Instagram } from 'lucide-react';
+import { Facebook, Twitter, Linkedin, Instagram } from 'lucide-react';
 
 const Footer = () => {
   return (
-    <footer className="bg-gray-900 text-white">
-      <div className="container mx-auto px-4 py-12">
+    // Giữ màu nền Xanh đen (Slate) thân thiện, chuyên nghiệp
+    <footer className="bg-gradient-to-r from-[#0f172a] to-[#1e293b] text-slate-300 border-t border-slate-800">
+      <div className="container mx-auto px-4 py-14">
+        
+        {/* GRID 4 CỘT: Nội dung giống hệt ảnh bạn gửi */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {/* Company Info */}
+          
+          {/* CỘT 1: Về chúng tôi */}
           <div>
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <Briefcase className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold">JOBHire</span>
-            </div>
-            <p className="text-gray-400 mb-4">
-              Nền tảng tuyển dụng thông minh với AI phân tích CV và dự đoán hiệu quả ứng viên.
-            </p>
-            <div className="flex space-x-4">
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Facebook className="w-5 h-5" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Twitter className="w-5 h-5" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Linkedin className="w-5 h-5" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Instagram className="w-5 h-5" />
-              </a>
-            </div>
+            <h3 className="text-white text-lg font-bold mb-6">Về chúng tôi</h3>
+            <ul className="space-y-3 text-sm">
+              <li>
+                <Link to="/about" className="hover:text-blue-400 transition-colors">
+                  Giới thiệu
+                </Link>
+              </li>
+              <li>
+                <Link to="/contact" className="hover:text-blue-400 transition-colors">
+                  Liên hệ
+                </Link>
+              </li>
+              <li>
+                <Link to="/terms" className="hover:text-blue-400 transition-colors">
+                  Điều khoản sử dụng
+                </Link>
+              </li>
+              <li>
+                <Link to="/privacy" className="hover:text-blue-400 transition-colors">
+                  Chính sách bảo mật
+                </Link>
+              </li>
+            </ul>
           </div>
 
-          {/* Quick Links */}
+          {/* CỘT 2: Dành cho ứng viên */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Liên kết nhanh</h3>
-            <ul className="space-y-2">
+            <h3 className="text-white text-lg font-bold mb-6">Dành cho ứng viên</h3>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link to="/" className="text-gray-400 hover:text-white transition-colors">
-                  Trang chủ
+                <Link to="/jobs" className="hover:text-blue-400 transition-colors">
+                  Việc làm mới nhất
                 </Link>
               </li>
               <li>
-                <Link to="/cv-list" className="text-gray-400 hover:text-white transition-colors">
-                  Danh sách CV
+                <Link to="/create-cv" className="hover:text-blue-400 transition-colors">
+                  Tạo CV
                 </Link>
               </li>
               <li>
-                <Link to="/post-job" className="text-gray-400 hover:text-white transition-colors">
+                <Link to="/career-blog" className="hover:text-blue-400 transition-colors">
+                  Cẩm nang nghề nghiệp
+                </Link>
+              </li>
+              <li>
+                <Link to="/salary" className="hover:text-blue-400 transition-colors">
+                  Tra cứu lương
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* CỘT 3: Dành cho nhà tuyển dụng */}
+          <div>
+            <h3 className="text-white text-lg font-bold mb-6">Dành cho nhà tuyển dụng</h3>
+            <ul className="space-y-3 text-sm">
+              <li>
+                <Link to="/post-job" className="hover:text-blue-400 transition-colors">
                   Đăng tin tuyển dụng
                 </Link>
               </li>
               <li>
-                <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors">
-                  Dashboard
+                <Link to="/search-cv" className="hover:text-blue-400 transition-colors">
+                  Tìm hồ sơ
+                </Link>
+              </li>
+              <li>
+                <Link to="/hr-solutions" className="hover:text-blue-400 transition-colors">
+                  Giải pháp HR
+                </Link>
+              </li>
+              <li>
+                <Link to="/pricing" className="hover:text-blue-400 transition-colors">
+                  Bảng giá dịch vụ
                 </Link>
               </li>
             </ul>
           </div>
 
-          {/* For Candidates */}
+          {/* CỘT 4: Kết nối với chúng tôi */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Dành cho ứng viên</h3>
-            <ul className="space-y-2">
-              <li>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  Tìm việc làm
-                </a>
-              </li>
-              <li>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  Tạo CV online
-                </a>
-              </li>
-              <li>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  Hướng dẫn viết CV
-                </a>
-              </li>
-              <li>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  Kỹ năng phỏng vấn
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          {/* Contact Info */}
-          <div>
-            <h3 className="text-lg font-semibold mb-4">Liên hệ</h3>
-            <div className="space-y-3">
-              <div className="flex items-center">
-                <Mail className="w-5 h-5 mr-3 text-blue-400" />
-                <span className="text-gray-400">contact@jobhire.com</span>
-              </div>
-              <div className="flex items-center">
-                <Phone className="w-5 h-5 mr-3 text-blue-400" />
-                <span className="text-gray-400">+84 123 456 789</span>
-              </div>
-              <div className="flex items-start">
-                <MapPin className="w-5 h-5 mr-3 text-blue-400 mt-1" />
-                <span className="text-gray-400">
-                  123 Đường ABC, Quận 1<br />
-                  TP. Hồ Chí Minh, Việt Nam
-                </span>
-              </div>
+            <h3 className="text-white text-lg font-bold mb-6">Kết nối với chúng tôi</h3>
+            <div className="flex space-x-4">
+              <a href="#" className="w-9 h-9 rounded bg-slate-800 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">
+                <Facebook className="w-5 h-5" />
+              </a>
+              <a href="#" className="w-9 h-9 rounded bg-slate-800 flex items-center justify-center hover:bg-pink-600 hover:text-white transition-all">
+                <Instagram className="w-5 h-5" />
+              </a>
+              <a href="#" className="w-9 h-9 rounded bg-slate-800 flex items-center justify-center hover:bg-blue-700 hover:text-white transition-all">
+                <Linkedin className="w-5 h-5" />
+              </a>
+              <a href="#" className="w-9 h-9 rounded bg-slate-800 flex items-center justify-center hover:bg-sky-500 hover:text-white transition-all">
+                <Twitter className="w-5 h-5" />
+              </a>
             </div>
           </div>
+
         </div>
 
-        {/* Bottom Section */}
-        <div className="border-t border-gray-800 mt-8 pt-8">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <p className="text-gray-400 text-sm">
-              © 2024 JobHire. Tất cả quyền được bảo lưu.
-            </p>
-            <div className="flex space-x-6 mt-4 md:mt-0">
-              <a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">
-                Điều khoản sử dụng
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">
-                Chính sách bảo mật
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">
-                Cookie Policy
-              </a>
-            </div>
-          </div>
+        {/* DÒNG CUỐI CÙNG: Copyright */}
+        <div className="border-t border-slate-800 mt-12 pt-8 text-center">
+          <p className="text-slate-500 text-sm">
+            © 2025 JobHire. Tất cả quyền được bảo lưu.
+          </p>
         </div>
       </div>
     </footer>

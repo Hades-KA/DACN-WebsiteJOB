@@ -8,13 +8,12 @@ const { auth } = require('../middleware/auth');
 const { uploadLogo, handleUploadError } = require('../middleware/uploadImage');
 
 const router = express.Router();
-router.use(auth);
 
 /* ============ Helpers ============ */
 const absoluteUrl = (req, url) => {
   if (!url) return url;
-  if (/^https?:\/\//i.test(url)) return url;
-  if (!url.startsWith('/')) return url;
+  if (/^https?:\/\//i.test(url)) return url;       // đã là full URL (vd clearbit)
+  if (!url.startsWith('/')) return url;           // không phải path tương đối server
   const base = `${req.protocol}://${req.get('host')}`;
   return base + url;
 };
@@ -37,7 +36,8 @@ const sanitizePayload = (body, allowed) => {
   return out;
 };
 
-/* ============ LIST COMPANIES (EMPLOYERS) ============ */
+/* ============ 1. LIST COMPANIES (PUBLIC) ============ */
+// GET /api/companies?search=...
 router.get('/', async (req, res) => {
   try {
     const pageNum = parseInt(req.query.page, 10) || 1;
@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
     const search = (req.query.search || '').trim();
 
-    const whereClause = { userType: 'employer' };
+    const whereClause = { userType: 'employer', isActive: true };
     if (search) {
       whereClause[Op.or] = [
         { name:    { [Op.like]: `%${search}%` } },
@@ -56,13 +56,23 @@ router.get('/', async (req, res) => {
 
     const { count, rows } = await User.findAndCountAll({
       where: whereClause,
-      attributes: ['id', 'name', 'company', 'email', 'createdAt', 'logoUrl'],
+      attributes: [
+        'id',
+        'name',
+        'company',
+        'email',
+        'phone',
+        'companyCity',
+        'companySize',
+        'createdAt',
+        'logoUrl',
+      ],
       order: [['createdAt', 'DESC']],
       limit: limitNum,
       offset,
     });
 
-    const data = rows.map(r => {
+    const data = rows.map((r) => {
       const raw = r.toJSON();
       raw.logoUrl = absoluteUrl(req, raw.logoUrl);
       return raw;
@@ -84,15 +94,28 @@ router.get('/', async (req, res) => {
   }
 });
 
-/* ============ GET COMPANY BY ID ============ */
+/* ============ 2. GET COMPANY BY ID (PUBLIC) ============ */
+// GET /api/companies/:id
 router.get('/:id', async (req, res) => {
   try {
     const company = await User.findOne({
       where: { id: req.params.id, userType: 'employer' },
       attributes: [
-        'id', 'name', 'email', 'phone',
-        'company', 'companyWebsite', 'companySize', 'industry', 'taxCode', 'businessLicense',
-        'companyCity', 'companyAddress', 'logoUrl', 'companyAbout', 'createdAt',
+        'id',
+        'name',
+        'email',
+        'phone',
+        'company',
+        'companyWebsite',
+        'companySize',
+        'industry',
+        'taxCode',
+        'businessLicense',
+        'companyCity',
+        'companyAddress',
+        'logoUrl',
+        'companyAbout',
+        'createdAt',
       ],
     });
     if (!company) return res.status(404).json({ message: 'Company not found' });
@@ -107,13 +130,15 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-/* ============ UPDATE COMPANY (OWNER OR ADMIN) ============ */
+/* ============ 3. UPDATE COMPANY (OWNER OR ADMIN) ============ */
+// các route dưới đây yêu cầu auth
+
 const updateRules = [
   body('company').optional({ checkFalsy: true, nullable: true }).isString().isLength({ min: 2, max: 255 }),
   body('companyWebsite').optional({ checkFalsy: true, nullable: true }).isString().isLength({ max: 255 }),
   body('companySize')
     .optional({ checkFalsy: true, nullable: true })
-    .customSanitizer(v => (v == null ? v : String(v)))
+    .customSanitizer((v) => (v == null ? v : String(v)))
     .isLength({ max: 50 }),
   body('industry').optional({ checkFalsy: true, nullable: true }).isString().isLength({ max: 100 }),
   body('taxCode').optional({ checkFalsy: true, nullable: true }).isString().isLength({ max: 50 }),
@@ -127,11 +152,14 @@ const updateRules = [
   body('email').optional({ checkFalsy: true, nullable: true }).isEmail(),
 ];
 
-router.put('/:id', updateRules, async (req, res) => {
+// PUT /api/companies/:id
+router.put('/:id', auth, updateRules, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+      return res
+        .status(400)
+        .json({ message: 'Validation failed', errors: errors.array() });
     }
 
     const requesterId = req.user?.id || req.user?.userId;
@@ -139,29 +167,56 @@ router.put('/:id', updateRules, async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: only owner or admin' });
     }
 
-    const target = await User.findOne({ where: { id: req.params.id, userType: 'employer' } });
+    const target = await User.findOne({
+      where: { id: req.params.id, userType: 'employer' },
+    });
     if (!target) return res.status(404).json({ message: 'Company not found' });
 
     const allowed = [
-      'company', 'companyWebsite', 'companySize', 'industry', 'taxCode', 'businessLicense',
-      'companyCity', 'companyAddress', 'logoUrl', 'companyAbout',
-      'phone', 'email', 'name',
+      'company',
+      'companyWebsite',
+      'companySize',
+      'industry',
+      'taxCode',
+      'businessLicense',
+      'companyCity',
+      'companyAddress',
+      'logoUrl',
+      'companyAbout',
+      'phone',
+      'email',
+      'name',
     ];
     const payload = sanitizePayload(req.body, allowed);
     if (payload.logoUrl) payload.logoUrl = absoluteUrl(req, payload.logoUrl);
 
     const [count] = await User.update(payload, {
       where: { id: req.params.id, userType: 'employer' },
-      silent: true, // không set updatedAt
+      silent: true,
     });
-    if (!count) return res.status(404).json({ message: 'Company not found or not updated' });
+    if (!count)
+      return res
+        .status(404)
+        .json({ message: 'Company not found or not updated' });
 
     const updated = await User.findOne({
       where: { id: req.params.id },
       attributes: [
-        'id', 'name', 'email', 'phone',
-        'company', 'companyWebsite', 'companySize', 'industry', 'taxCode', 'businessLicense',
-        'companyCity', 'companyAddress', 'logoUrl', 'companyAbout', 'updatedAt',
+        'id',
+        'name',
+        'email',
+        'phone',
+        'company',
+        'companyWebsite',
+        'companySize',
+        'industry',
+        'taxCode',
+        'businessLicense',
+        'companyCity',
+        'companyAddress',
+        'logoUrl',
+        'companyAbout',
+        'updatedAt',
       ],
     });
 
@@ -180,78 +235,98 @@ router.put('/:id', updateRules, async (req, res) => {
   }
 });
 
-/* ============ UPLOAD LOGO (OWNER OR ADMIN) ============ */
-router.post('/:id/logo', uploadLogo.single('logo'), handleUploadError, async (req, res) => {
-  try {
-    const { id } = req.params;
+/* ============ 4. UPLOAD LOGO (OWNER OR ADMIN) ============ */
+// POST /api/companies/:id/logo
+router.post(
+  '/:id/logo',
+  auth,
+  uploadLogo.single('logo'),
+  handleUploadError,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const requesterId = req.user?.id || req.user?.userId;
-    if (req.user.userType !== 'admin' && requesterId !== id) {
-      return res.status(403).json({ message: 'Forbidden: only owner or admin' });
+      const requesterId = req.user?.id || req.user?.userId;
+      if (req.user.userType !== 'admin' && requesterId !== id) {
+        return res
+          .status(403)
+          .json({ message: 'Forbidden: only owner or admin' });
+      }
+
+      const company = await User.findOne({ where: { id, userType: 'employer' } });
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+      if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+      const filePath = `/uploads/logos/${req.file.filename}`;
+      const fullUrl = absoluteUrl(req, filePath);
+
+      await User.update(
+        { logoUrl: fullUrl },
+        { where: { id, userType: 'employer' }, silent: true }
+      );
+
+      return res.json({ message: 'Logo uploaded', data: { logoUrl: fullUrl } });
+    } catch (e) {
+      console.error('Upload logo error:', e);
+      return res.status(500).json({ message: 'Failed to upload logo' });
     }
-
-    const company = await User.findOne({ where: { id, userType: 'employer' } });
-    if (!company) return res.status(404).json({ message: 'Company not found' });
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-
-    const filePath = `/uploads/logos/${req.file.filename}`;
-    const fullUrl = absoluteUrl(req, filePath);
-
-    await User.update(
-      { logoUrl: fullUrl },
-      { where: { id, userType: 'employer' }, silent: true }
-    );
-
-    return res.json({ message: 'Logo uploaded', data: { logoUrl: fullUrl } });
-  } catch (e) {
-    console.error('Upload logo error:', e);
-    return res.status(500).json({ message: 'Failed to upload logo' });
   }
-});
+);
 
-/* ============ COMPANY STATS (NEW) ============ */
+/* ============ 5. COMPANY STATS (AUTH) ============ */
 // GET /api/companies/:id/stats
-router.get('/:id/stats', async (req, res) => {
+router.get('/:id/stats', auth, async (req, res) => {
   try {
     const id = req.params.id;
 
-    // xác nhận company tồn tại
-    const company = await User.findOne({ where: { id, userType: 'employer' }, attributes: ['id'] });
+    const company = await User.findOne({
+      where: { id, userType: 'employer' },
+      attributes: ['id'],
+    });
     if (!company) return res.status(404).json({ message: 'Company not found' });
 
-    // thẻ tổng quan
-    const [jobsTotal, jobsOpen, jobsClosed, viewsTotal, applicationsTotal] = await Promise.all([
-      Job.count({ where: { employerId: id } }),
-      Job.count({ where: { employerId: id, isActive: true } }),
-      Job.count({ where: { employerId: id, isActive: false } }),
-      Job.sum('viewsCount', { where: { employerId: id } }),
-      Application.count({
-        include: [{ model: Job, as: 'job', where: { employerId: id }, attributes: [] }]
-      }),
-    ]);
+    const [jobsTotal, jobsOpen, jobsClosed, viewsTotal, applicationsTotal] =
+      await Promise.all([
+        Job.count({ where: { employerId: id } }),
+        Job.count({ where: { employerId: id, isActive: true } }),
+        Job.count({ where: { employerId: id, isActive: false } }),
+        Job.sum('viewsCount', { where: { employerId: id } }),
+        Application.count({
+          include: [
+            {
+              model: Job,
+              as: 'job',
+              where: { employerId: id },
+              attributes: [],
+            },
+          ],
+        }),
+      ]);
 
-    // breakdown đơn theo status (group by)
     const breakdownRows = await Application.findAll({
-      attributes: [
-        'status',
-        [fn('COUNT', col('Application.id')), 'count']
+      attributes: ['status', [fn('COUNT', col('Application.id')), 'count']],
+      include: [
+        {
+          model: Job,
+          as: 'job',
+          where: { employerId: id },
+          attributes: [],
+        },
       ],
-      include: [{ model: Job, as: 'job', where: { employerId: id }, attributes: [] }],
       group: ['Application.status'],
-      raw: true
+      raw: true,
     });
 
     const byStatus = {};
-    breakdownRows.forEach(r => {
+    breakdownRows.forEach((r) => {
       byStatus[r.status || 'unknown'] = Number(r.count) || 0;
     });
 
-    // tin đăng gần đây
     const recentJobs = await Job.findAll({
       where: { employerId: id },
       order: [['createdAt', 'DESC']],
       limit: 5,
-      attributes: ['id', 'title', 'createdAt']
+      attributes: ['id', 'title', 'createdAt'],
     });
 
     return res.json({
@@ -265,8 +340,8 @@ router.get('/:id/stats', async (req, res) => {
           applicationsTotal: applicationsTotal || 0,
         },
         breakdown: { byStatus },
-        recentJobs
-      }
+        recentJobs,
+      },
     });
   } catch (e) {
     console.error('Get company stats error:', e);
@@ -274,8 +349,9 @@ router.get('/:id/stats', async (req, res) => {
   }
 });
 
-/* ============ COMPANY JOBS ============ */
-router.get('/:id/jobs', async (req, res) => {
+/* ============ 6. COMPANY JOBS (AUTH) ============ */
+// GET /api/companies/:id/jobs
+router.get('/:id/jobs', auth, async (req, res) => {
   try {
     const { id } = req.params;
     const pageNum = parseInt(req.query.page, 10) || 1;
@@ -286,8 +362,11 @@ router.get('/:id/jobs', async (req, res) => {
     const where = { employerId: id };
     if (active === 'true') where.isActive = true;
     else if (active === 'false') where.isActive = false;
-    else if (active === 'all') { /* all */ }
-    else { where.isActive = true; }
+    else if (active === 'all') {
+      /* all */
+    } else {
+      where.isActive = true;
+    }
 
     const { count, rows } = await Job.findAndCountAll({
       where,

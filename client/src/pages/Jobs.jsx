@@ -1,3 +1,4 @@
+// client/src/pages/Jobs.jsx
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -39,6 +40,74 @@ const typeEnMap = {
   'Thời vụ': 'contract',
   'Thực tập': 'intern',
 };
+
+/* ========== BÀI VIẾT MỚI (dùng lại nội dung Cẩm nang việc làm) ========== */
+const GUIDE_POSTS = [
+  {
+    id: 1,
+    title: 'Cách viết CV ấn tượng cho sinh viên mới ra trường',
+    category: 'Kỹ năng viết CV',
+    date: '20/3/2024',
+    excerpt:
+      'Hướng dẫn chi tiết cách tạo CV chuyên nghiệp cho sinh viên mới tốt nghiệp.',
+  },
+  {
+    id: 2,
+    title: '10 xu hướng ngành nghề hot nhất 2024',
+    category: 'Xu hướng việc làm',
+    date: '18/3/2024',
+    excerpt:
+      'Khám phá những ngành nghề đang có nhu cầu cao nhất trên thị trường.',
+  },
+  {
+    id: 3,
+    title: 'Kỹ năng phỏng vấn online hiệu quả',
+    category: 'Phỏng vấn',
+    date: '15/3/2024',
+    excerpt:
+      'Những bí quyết để thành công trong buổi phỏng vấn trực tuyến.',
+  },
+  {
+    id: 4,
+    title: '5 cách đàm phán lương hiệu quả',
+    category: 'Phát triển sự nghiệp',
+    date: '12/3/2024',
+    excerpt:
+      'Chiến lược đàm phán lương thành công cho người đi làm.',
+  },
+  {
+    id: 5,
+    title: 'LinkedIn: Công cụ tìm việc hiệu quả',
+    category: 'Kỹ năng tìm việc',
+    date: '10/3/2024',
+    excerpt:
+      'Tối ưu hóa profile LinkedIn để thu hút nhà tuyển dụng.',
+  },
+  {
+    id: 6,
+    title: 'Quản lý thời gian hiệu quả trong công việc',
+    category: 'Kỹ năng làm việc',
+    date: '8/3/2024',
+    excerpt:
+      'Phương pháp quản lý thời gian 4D giúp tăng năng suất.',
+  },
+  {
+    id: 7,
+    title: 'Xây dựng Personal Branding trong thời đại số',
+    category: 'Phát triển cá nhân',
+    date: '5/3/2024',
+    excerpt:
+      'Chiến lược xây dựng thương hiệu cá nhân trên các nền tảng số.',
+  },
+  {
+    id: 8,
+    title: 'Kỹ năng làm việc nhóm trong môi trường đa văn hóa',
+    category: 'Kỹ năng mềm',
+    date: '2/3/2024',
+    excerpt:
+      'Những điều cần biết khi làm việc trong môi trường đa quốc gia.',
+  },
+];
 
 /* ================= UI: Select pill ================= */
 function SelectPill({ icon: Icon, value, onChange, placeholder, options, className }) {
@@ -119,7 +188,7 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave }) {
       onClick={onClick}
       role="link"
       tabIndex={0}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
       className="relative bg-white border rounded-xl p-4 hover:shadow-sm transition cursor-pointer min-h-[92px]"
     >
       {/* Nội dung trái (logo + info) */}
@@ -140,16 +209,16 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave }) {
 
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span className="text-rose-600 font-semibold">
-              {job.salary || job.salaryBand || "Thoả thuận"}
+              {job.salary || job.salaryBand || 'Thoả thuận'}
             </span>
             <span className="text-gray-400">•</span>
             <span className="text-gray-600 flex items-center gap-1">
               <MapPin className="w-4 h-4" />
-              {job.location || "Không rõ"}
+              {job.location || 'Không rõ'}
             </span>
             <span className="text-gray-400">•</span>
             <span className="text-gray-600">
-              {timeAgo(job.createdAt) || "Mới đăng"}
+              {timeAgo(job.createdAt) || 'Mới đăng'}
             </span>
           </div>
         </div>
@@ -166,18 +235,18 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave }) {
         className={`absolute right-4 bottom-3 text-sm inline-flex items-center gap-1 px-2 py-1 rounded-md
           ${
             saved
-              ? "text-rose-600 hover:text-rose-700"
-              : "text-violet-600 hover:text-violet-700"
+              ? 'text-rose-600 hover:text-rose-700'
+              : 'text-violet-600 hover:text-violet-700'
           }
           disabled:opacity-60`}
-        title={saved ? "Bỏ lưu" : "Lưu"}
+        title={saved ? 'Bỏ lưu' : 'Lưu'}
       >
         <Heart
           className="w-4 h-4"
-          fill={saved ? "currentColor" : "none"}
+          fill={saved ? 'currentColor' : 'none'}
           strokeWidth={1.8}
         />
-        {saving ? "..." : saved ? "Đã lưu" : "Lưu"}
+        {saving ? '...' : saved ? 'Đã lưu' : 'Lưu'}
       </button>
     </div>
   );
@@ -233,7 +302,9 @@ export default function Jobs() {
         if (active) setSavedMap({});
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Fetch server-side mỗi khi filter/sort/page đổi
@@ -256,15 +327,24 @@ export default function Jobs() {
 
         const res = await jobService.getAllJobs(query);
         const raw = res?.data || {};
-        const list = Array.isArray(raw.data) ? raw.data : (Array.isArray(raw) ? raw : []);
-        const pagination = raw.pagination || raw.meta || { totalItems: list.length, totalPages: 1 };
+        const list = Array.isArray(raw.data)
+          ? raw.data
+          : Array.isArray(raw)
+          ? raw
+          : [];
+        const pagination =
+          raw.pagination || raw.meta || { totalItems: list.length, totalPages: 1 };
 
         if (!active) return;
         setJobs(
           list.map((j, i) => ({
             id: j.id || j._id || `j-${i}`,
             title: j.title || j.name || '',
-            company: j.company || j.employer?.company || j.employer?.name || 'Công ty ẩn danh',
+            company:
+              j.company ||
+              j.employer?.company ||
+              j.employer?.name ||
+              'Công ty ẩn danh',
             companyLogo: j.companyLogo || j.employer?.logoUrl || '',
             location: j.location || '',
             salary: j.salary || '',
@@ -286,8 +366,23 @@ export default function Jobs() {
         if (active) setLoading(false);
       }
     })();
-    return () => { active = false; };
-  }, [keyword, skill, location, category, level, experience, salary, education, type, posted, sort, page]);
+    return () => {
+      active = false;
+    };
+  }, [
+    keyword,
+    skill,
+    location,
+    category,
+    level,
+    experience,
+    salary,
+    education,
+    type,
+    posted,
+    sort,
+    page,
+  ]);
 
   // Đồng bộ URL
   useEffect(() => {
@@ -305,14 +400,37 @@ export default function Jobs() {
     if (sort) next.set('sort', sort);
     next.set('page', String(page));
     setParams(next, { replace: true });
-  }, [keyword, skill, location, category, level, experience, salary, education, type, posted, sort, page, setParams]);
+  }, [
+    keyword,
+    skill,
+    location,
+    category,
+    level,
+    experience,
+    salary,
+    education,
+    type,
+    posted,
+    sort,
+    page,
+    setParams,
+  ]);
 
   const total = meta.totalItems || jobs.length;
 
   const resetFilters = () => {
-    setKeyword(''); setSkill(''); setLocation(''); setCategory(''); setLevel('');
-    setExperience(''); setSalary(''); setEducation(''); setType(''); setPosted('');
-    setSort('newest'); setPage(1);
+    setKeyword('');
+    setSkill('');
+    setLocation('');
+    setCategory('');
+    setLevel('');
+    setExperience('');
+    setSalary('');
+    setEducation('');
+    setType('');
+    setPosted('');
+    setSort('newest');
+    setPage(1);
   };
 
   const isSaved = (jobId) => !!savedMap[jobId];
@@ -360,7 +478,10 @@ export default function Jobs() {
                 <SearchIcon className="w-5 h-5 text-gray-500" />
                 <input
                   value={keyword}
-                  onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+                  onChange={(e) => {
+                    setKeyword(e.target.value);
+                    setPage(1);
+                  }}
                   placeholder="Tìm kiếm cơ hội việc làm"
                   className="flex-1 bg-transparent outline-none text-sm"
                 />
@@ -370,7 +491,10 @@ export default function Jobs() {
               <SelectPill
                 icon={Briefcase}
                 value={skill}
-                onChange={(v) => { setSkill(v); setPage(1); }}
+                onChange={(v) => {
+                  setSkill(v);
+                  setPage(1);
+                }}
                 placeholder="Lọc theo nghề nghiệp"
                 options={['Java', 'ReactJS', 'NodeJS', 'Python']}
                 className="w-full"
@@ -380,7 +504,10 @@ export default function Jobs() {
               <SelectPill
                 icon={MapPin}
                 value={location}
-                onChange={(v) => { setLocation(v); setPage(1); }}
+                onChange={(v) => {
+                  setLocation(v);
+                  setPage(1);
+                }}
                 placeholder="Lọc theo tỉnh thành"
                 options={['Hà Nội', 'Đà Nẵng', 'TP.HCM']}
                 className="w-full"
@@ -391,29 +518,92 @@ export default function Jobs() {
           {/* Hàng 2 */}
           <div className="mt-3 grid grid-cols-12 gap-4">
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={Briefcase} value={category} onChange={(v)=>{setCategory(v);setPage(1);}} placeholder="Ngành nghề" options={FILTERS.category} />
+              <SelectPill
+                icon={Briefcase}
+                value={category}
+                onChange={(v) => {
+                  setCategory(v);
+                  setPage(1);
+                }}
+                placeholder="Ngành nghề"
+                options={FILTERS.category}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={SlidersHorizontal} value={level} onChange={(v)=>{setLevel(v);setPage(1);}} placeholder="Cấp bậc" options={FILTERS.level} />
+              <SelectPill
+                icon={SlidersHorizontal}
+                value={level}
+                onChange={(v) => {
+                  setLevel(v);
+                  setPage(1);
+                }}
+                placeholder="Cấp bậc"
+                options={FILTERS.level}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={SlidersHorizontal} value={experience} onChange={(v)=>{setExperience(v);setPage(1);}} placeholder="Kinh nghiệm" options={FILTERS.experience} />
+              <SelectPill
+                icon={SlidersHorizontal}
+                value={experience}
+                onChange={(v) => {
+                  setExperience(v);
+                  setPage(1);
+                }}
+                placeholder="Kinh nghiệm"
+                options={FILTERS.experience}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={BadgeDollarSign} value={salary} onChange={(v)=>{setSalary(v);setPage(1);}} placeholder="Mức lương" options={FILTERS.salary} />
+              <SelectPill
+                icon={BadgeDollarSign}
+                value={salary}
+                onChange={(v) => {
+                  setSalary(v);
+                  setPage(1);
+                }}
+                placeholder="Mức lương"
+                options={FILTERS.salary}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={GraduationCap} value={education} onChange={(v)=>{setEducation(v);setPage(1);}} placeholder="Học vấn" options={FILTERS.education} />
+              <SelectPill
+                icon={GraduationCap}
+                value={education}
+                onChange={(v) => {
+                  setEducation(v);
+                  setPage(1);
+                }}
+                placeholder="Học vấn"
+                options={FILTERS.education}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={Briefcase} value={type} onChange={(v)=>{setType(v);setPage(1);}} placeholder="Loại công việc" options={FILTERS.type} />
+              <SelectPill
+                icon={Briefcase}
+                value={type}
+                onChange={(v) => {
+                  setType(v);
+                  setPage(1);
+                }}
+                placeholder="Loại công việc"
+                options={FILTERS.type}
+              />
             </div>
           </div>
 
           {/* Hàng 3 */}
           <div className="mt-3 grid grid-cols-12 gap-4">
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
-              <SelectPill icon={CalendarDays} value={posted} onChange={(v)=>{setPosted(v);setPage(1);}} placeholder="Đăng trong" options={FILTERS.posted} />
+              <SelectPill
+                icon={CalendarDays}
+                value={posted}
+                onChange={(v) => {
+                  setPosted(v);
+                  setPage(1);
+                }}
+                placeholder="Đăng trong"
+                options={FILTERS.posted}
+              />
             </div>
             <div className="col-span-12 sm:col-span-6 lg:col-span-2 min-w-0">
               <button
@@ -433,22 +623,31 @@ export default function Jobs() {
       <section className="container mx-auto max-w-7xl px-4 pt-4 pb-6">
         <div className="mb-4">
           <div className="text-sm">
-            <Link to="/" className="text-blue-600 hover:underline">Trang Chủ</Link>
+            <Link to="/" className="text-blue-600 hover:underline">
+              Trang Chủ
+            </Link>
             <span className="mx-2 text-gray-400">/</span>
             <span className="text-gray-600">Tuyển dụng</span>
           </div>
 
-        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="mt-2 flex items-center justify-between gap-3">
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
-              Tuyển dụng <span className="text-blue-600">{total}</span> việc làm mới nhất năm <span className="text-rose-600">{currentYear}</span>
+              Tuyển dụng{' '}
+              <span className="text-blue-600">{total}</span> việc làm mới nhất năm{' '}
+              <span className="text-rose-600">{currentYear}</span>
             </h1>
 
             <div className="flex items-center gap-2">
-              <label htmlFor="sort" className="text-sm text-gray-500">Sắp xếp:</label>
+              <label htmlFor="sort" className="text-sm text-gray-500">
+                Sắp xếp:
+              </label>
               <select
                 id="sort"
                 value={sort}
-                onChange={(e) => { setSort(e.target.value); setPage(1); }}
+                onChange={(e) => {
+                  setSort(e.target.value);
+                  setPage(1);
+                }}
                 className="h-9 px-3 text-sm bg-white border rounded-lg"
               >
                 <option value="newest">Mới nhất</option>
@@ -459,7 +658,7 @@ export default function Jobs() {
         </div>
 
         <div className="grid grid-cols-12 gap-5">
-          {/* List style giống video + nút Lưu */}
+          {/* Danh sách việc làm */}
           <div className="col-span-12 lg:col-span-8 xl:col-span-9">
             {loading ? (
               <div className="space-y-3">
@@ -500,7 +699,11 @@ export default function Jobs() {
                 Trang {page} / {Math.max(1, meta.totalPages || 1)}
               </span>
               <button
-                onClick={() => setPage((p) => (meta.totalPages ? Math.min(meta.totalPages, p + 1) : p + 1))}
+                onClick={() =>
+                  setPage((p) =>
+                    meta.totalPages ? Math.min(meta.totalPages, p + 1) : p + 1
+                  )
+                }
                 disabled={meta.totalPages ? page >= meta.totalPages : false}
                 className="px-4 h-9 rounded-full border bg-white text-gray-700 disabled:opacity-50"
               >
@@ -511,17 +714,48 @@ export default function Jobs() {
 
           {/* Sidebar */}
           <aside className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-4">
+            {/* Công ty nổi bật */}
             <div className="bg-white border rounded-2xl p-4">
               <h3 className="font-semibold text-gray-900 mb-3">Công ty nổi bật</h3>
-              <div className="text-sm text-gray-500 flex items-center justify-center h-24">No data</div>
+              <div className="text-sm text-gray-500 flex items-center justify-center h-24">
+                No data
+              </div>
             </div>
+
+            {/* Bài viết mới */}
             <div className="bg-white border rounded-2xl p-4">
               <h3 className="font-semibold text-gray-900 mb-3">Bài viết mới</h3>
-              <ul className="space-y-3 text-sm">
-                <li className="text-blue-700 hover:underline">Cách viết CV ấn tượng cho sinh viên mới ra trường</li>
-                <li className="text-blue-700 hover:underline">10 xu hướng ngành nghề hot nhất 2024</li>
-                <li className="text-blue-700 hover:underline">Tips phỏng vấn dành cho Fresher</li>
-              </ul>
+              <div className="space-y-3">
+                {GUIDE_POSTS.slice(0, 6).map((post) => (
+                  <div
+                    key={post.id}
+                    className="pb-3 border-b last:border-b-0 last:pb-0"
+                  >
+                    <Link
+                      to="/guide"
+                      className="block text-sm font-semibold text-pink-700 hover:underline"
+                    >
+                      {post.title}
+                    </Link>
+                    <div className="mt-0.5 text-[11px] text-pink-600 font-medium">
+                      {post.category}
+                    </div>
+                    <p className="mt-0.5 text-xs text-gray-600 line-clamp-2">
+                      {post.excerpt}
+                    </p>
+                    <div className="mt-1 flex items-center text-[11px] text-gray-400 gap-1">
+                      <CalendarDays className="w-3 h-3" />
+                      <span>{post.date}</span>
+                    </div>
+                  </div>
+                ))}
+                <Link
+                  to="/guide"
+                  className="block mt-1 text-xs text-pink-600 hover:underline text-right"
+                >
+                  Xem tất cả
+                </Link>
+              </div>
             </div>
           </aside>
         </div>

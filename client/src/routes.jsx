@@ -2,7 +2,13 @@
 // Cấu hình route chính cho ứng dụng JobHire
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from 'react-router-dom';
 
 // ===== Trang Public =====
 import Home from './pages/Home';
@@ -17,6 +23,16 @@ import VerifyEmail from './pages/auth/VerifyEmail';
 
 // Trang Ngành nghề/Địa điểm (list)
 import Jobs from './pages/Jobs';
+
+// ===== Cẩm nang việc làm =====
+import CareerGuide from './pages/CareerGuide';
+
+// ===== Mục Công ty (mới) =====
+import Companies from './pages/Companies';
+
+// ===== Mẫu CV xin việc (mới thêm) =====
+import CVTemplates from './pages/CVTemplates';
+import CVBuilder from './pages/CVBuilder';
 
 // ===== Ứng viên (Candidate) =====
 import ProfileLayout from './pages/profile/ProfileLayout';
@@ -37,7 +53,7 @@ import CompanyProfile from './pages/employer/CompanyProfile';
 import EmployerCVs from './pages/employer/CVManagement';
 import EmployerCandidates from './pages/employer/Candidates';
 import EmployerReports from './pages/employer/Reports';
-import EmployerChat from './pages/employer/Chat'; // ⬅️ thêm
+import EmployerChat from './pages/employer/Chat';
 
 // ===== Quản trị viên (Admin) =====
 import AdminLayout from './pages/admin/AdminLayout';
@@ -90,8 +106,10 @@ function Landing() {
     userType = raw ? JSON.parse(raw).userType : null;
   } catch {}
 
-  if (token && userType === 'employer') return <Navigate to="/employer/dashboard" replace />;
-  if (token && userType === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  if (token && userType === 'employer')
+    return <Navigate to="/employer/dashboard" replace />;
+  if (token && userType === 'admin')
+    return <Navigate to="/admin/dashboard" replace />;
   return <Home />;
 }
 
@@ -102,7 +120,7 @@ function Shell() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isEmployerRoute = location.pathname.startsWith('/employer');
   const isAuthPage =
-    location.pathname.startsWith('/login') || 
+    location.pathname.startsWith('/login') ||
     location.pathname.startsWith('/register') ||
     location.pathname.startsWith('/forgot-password') ||
     location.pathname.startsWith('/reset-password') ||
@@ -116,25 +134,74 @@ function Shell() {
 
       <main className="flex-1">
         <Routes>
-
           {/* ===== Public ===== */}
           <Route path="/" element={<Landing />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/job/:id" element={<JobDetail />} />
 
-          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-          <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
-          
+          {/* Cẩm nang việc làm */}
+          <Route path="/guide" element={<CareerGuide />} />
+
+          {/* Công ty (liệt kê tất cả NTD) */}
+          <Route path="/companies" element={<Companies />} />
+
+          {/* Mẫu CV xin việc */}
+          <Route path="/cv-templates" element={<CVTemplates />} />
+          <Route path="/cv-builder/:templateId" element={<CVBuilder />} />
+
+          {/* Auth */}
+          <Route
+            path="/login"
+            element={
+              <PublicRoute>
+                <Login />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              <PublicRoute>
+                <Register />
+              </PublicRoute>
+            }
+          />
+
           {/* Auth routes mới */}
-          <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-          <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
-          <Route path="/verify-email" element={<PublicRoute><VerifyEmail /></PublicRoute>} />
+          <Route
+            path="/forgot-password"
+            element={
+              <PublicRoute>
+                <ForgotPassword />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              <PublicRoute>
+                <ResetPassword />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/verify-email"
+            element={
+              <PublicRoute>
+                <VerifyEmail />
+              </PublicRoute>
+            }
+          />
 
           {/* ===== Candidate ===== */}
           <Route
             path="/profile"
-            element={<ProtectedRoute><ProfileLayout /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <ProfileLayout />
+              </ProtectedRoute>
+            }
           >
             <Route index element={<ProfileOverview />} />
             <Route path="myprofile" element={<MyProfile />} />
@@ -160,17 +227,29 @@ function Shell() {
 
           <Route
             path="/my-applications"
-            element={<ProtectedRoute roles={['candidate']}><MyApplications /></ProtectedRoute>}
+            element={
+              <ProtectedRoute roles={['candidate']}>
+                <MyApplications />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/saved-jobs"
-            element={<ProtectedRoute roles={['candidate']}><SavedJobs /></ProtectedRoute>}
+            element={
+              <ProtectedRoute roles={['candidate']}>
+                <SavedJobs />
+              </ProtectedRoute>
+            }
           />
 
           {/* ===== Employer ===== */}
           <Route
             path="/employer"
-            element={<ProtectedRoute roles={['employer']}><EmployerLayout /></ProtectedRoute>}
+            element={
+              <ProtectedRoute roles={['employer']}>
+                <EmployerLayout />
+              </ProtectedRoute>
+            }
           >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<EmployerDashboard />} />
@@ -178,17 +257,24 @@ function Shell() {
             <Route path="jobs/new" element={<JobPost />} />
             <Route path="jobs/:jobId/applicants" element={<Applicants />} />
             <Route path="company" element={<CompanyProfile />} />
-            <Route path="recruitment" element={<div className="p-4">Tuyển dụng (đang phát triển)</div>} />
+            <Route
+              path="recruitment"
+              element={<div className="p-4">Tuyển dụng (đang phát triển)</div>}
+            />
             <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<EmployerCandidates />} />
             <Route path="reports" element={<EmployerReports />} />
-            <Route path="chat" element={<EmployerChat />} /> {/* ⬅️ route chat */}
+            <Route path="chat" element={<EmployerChat />} />
           </Route>
 
           {/* ===== Admin ===== */}
           <Route
             path="/admin"
-            element={<ProtectedRoute roles={['admin']}><AdminLayout /></ProtectedRoute>}
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
           >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<AdminDashboard />} />
