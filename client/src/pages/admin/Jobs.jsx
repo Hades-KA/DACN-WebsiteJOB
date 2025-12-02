@@ -1,5 +1,6 @@
+// client/src/pages/admin/Jobs.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom'; // ✅ THÊM IMPORT NÀY
+import { Link } from 'react-router-dom';
 import { adminService } from '../../services/api';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -12,8 +13,21 @@ const formatDate = (d) => {
 };
 
 const getDeadline = (j) =>
-  j?.deadline || j?.expireDate || j?.expiresAt || j?.closingDate || j?.deadlineAt || j?.endDate || null;
+  j?.deadline ||
+  j?.expireDate ||
+  j?.expiresAt ||
+  j?.closingDate ||
+  j?.deadlineAt ||
+  j?.endDate ||
+  null;
 
+/**
+ * Xác định trạng thái hiển thị:
+ * - Hết hạn  : deadline < hôm nay
+ * - Đang hiển thị : isActive = true
+ * - Chờ duyệt: isActive = false & chưa có view & chưa có ứng tuyển
+ * - Đã ẩn    : isActive = false & đã có view/ứng tuyển (NTD/Admin đã từng tắt)
+ */
 const getStatusInfo = (job) => {
   const dl = getDeadline(job);
   const now = new Date();
@@ -21,15 +35,28 @@ const getStatusInfo = (job) => {
     const d = new Date(dl);
     if (!isNaN(d.getTime()) && d < now) return { label: 'Hết hạn', tone: 'expired' };
   }
+
   if (job?.isActive) return { label: 'Đang hiển thị', tone: 'active' };
+
+  const views = job?.viewsCount ?? 0;
+  const apps = job?.applicationsCount ?? 0;
+  if (!job?.isActive && views === 0 && apps === 0) {
+    return { label: 'Chờ duyệt', tone: 'pending' };
+  }
+
   return { label: 'Đã ẩn', tone: 'inactive' };
 };
 
 const badgeClass = (tone) => {
   switch (tone) {
-    case 'active': return 'bg-green-50 text-green-600 border border-green-200';
-    case 'expired': return 'bg-gray-600 text-white';
-    default: return 'bg-gray-100 text-gray-600 border border-gray-200';
+    case 'active':
+      return 'bg-green-50 text-green-600 border border-green-200';
+    case 'expired':
+      return 'bg-gray-600 text-white';
+    case 'pending':
+      return 'bg-amber-50 text-amber-700 border border-amber-200';
+    default:
+      return 'bg-gray-100 text-gray-600 border border-gray-200';
   }
 };
 
@@ -47,7 +74,10 @@ export default function Jobs() {
   const [limit] = useState(10);
   const [total, setTotal] = useState(0);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(total / limit)),
+    [total, limit]
+  );
   const from = (page - 1) * limit + 1;
   const to = Math.min(page * limit, total);
 
@@ -62,16 +92,27 @@ export default function Jobs() {
       setJobs(res?.data?.data || []);
       setTotal(res?.data?.pagination?.total || 0);
     } catch (e) {
-      setError(e?.response?.data?.message || 'Không tải được danh sách Quản lý tin tuyển dụng');
+      setError(
+        e?.response?.data?.message ||
+          'Không tải được danh sách Quản lý tin tuyển dụng'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchJobs(); /* eslint-disable-next-line */ }, [page]);
+  useEffect(() => {
+    fetchJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
-  const onSearch = () => { setPage(1); fetchJobs(); };
-  const onSearchEnter = (e) => { if (e.key === 'Enter') onSearch(); };
+  const onSearch = () => {
+    setPage(1);
+    fetchJobs();
+  };
+  const onSearchEnter = (e) => {
+    if (e.key === 'Enter') onSearch();
+  };
 
   const toggleActive = async (id, curr) => {
     try {
@@ -128,7 +169,7 @@ export default function Jobs() {
           >
             <option value="">Tất cả trạng thái</option>
             <option value="true">Đang hiển thị</option>
-            <option value="false">Đã ẩn</option>
+            <option value="false">Đã ẩn / Chờ duyệt</option>
           </select>
         </div>
       </div>
@@ -152,11 +193,21 @@ export default function Jobs() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">Đang tải dữ liệu...</td>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-gray-500"
+                  >
+                    Đang tải dữ liệu...
+                  </td>
                 </tr>
               ) : jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">Không có dữ liệu</td>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-gray-500"
+                  >
+                    Không có dữ liệu
+                  </td>
                 </tr>
               ) : (
                 jobs.map((j) => {
@@ -167,19 +218,31 @@ export default function Jobs() {
                   const canToggle = !isExpired;
 
                   return (
-                    <tr key={j.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-4 font-medium text-gray-900">{j.title}</td>
+                    <tr
+                      key={j.id}
+                      className="hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-4 py-4 font-medium text-gray-900">
+                        {j.title}
+                      </td>
                       <td className="px-4 py-4 text-gray-700">{j.company}</td>
-                      <td className="px-4 py-4 text-gray-700">{formatDate(postedAt)}</td>
-                      <td className="px-4 py-4 text-gray-700">{formatDate(deadline)}</td>
+                      <td className="px-4 py-4 text-gray-700">
+                        {formatDate(postedAt)}
+                      </td>
+                      <td className="px-4 py-4 text-gray-700">
+                        {formatDate(deadline)}
+                      </td>
                       <td className="px-4 py-4">
-                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${badgeClass(status.tone)}`}>
+                        <span
+                          className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${badgeClass(
+                            status.tone,
+                          )}`}
+                        >
                           {status.label}
                         </span>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
-                          {/* ✅ ĐỔI BUTTON → LINK */}
                           <Link
                             to={`/admin/jobs/${j.id}`}
                             className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 transition-colors"
@@ -212,20 +275,23 @@ export default function Jobs() {
         {/* Pagination */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
           <span className="text-sm text-gray-600">
-            Hiển thị {total ? from : 0}–{to} trong tổng số <strong>{total}</strong> kết quả
+            Hiển thị {total ? from : 0}–{to} trong tổng số{' '}
+            <strong>{total}</strong> kết quả
           </span>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
               className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600"
               title="Trang trước"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <div className="px-3 py-1 bg-blue-50 text-blue-600 font-medium text-sm rounded">{page}</div>
+            <div className="px-3 py-1 bg-blue-50 text-blue-600 font-medium text-sm rounded">
+              {page}
+            </div>
             <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
               className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600"
               title="Trang sau"

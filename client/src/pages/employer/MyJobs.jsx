@@ -1,3 +1,4 @@
+// client/src/pages/employer/MyJobs.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api, { companyService, jobService } from '../../services/api';
@@ -7,10 +8,10 @@ import JobFormModal from '../../components/employer/JobFormModal';
 const PAGE_SIZE = 10;
 
 const TABS = [
-  { key: 'all',        label: 'Tất cả tin' },
-  { key: 'approved',   label: 'Đã duyệt' },   // isActive = true
-  { key: 'locked',     label: 'Đã khóa' },    // isActive = false
-  { key: 'pending',    label: 'Chờ duyệt' },  // để khớp giao diện (chưa có dữ liệu)
+  { key: 'all',      label: 'Tất cả tin' },
+  { key: 'approved', label: 'Đã duyệt' },   // isActive = true
+  { key: 'locked',   label: 'Đã khóa' },    // isActive = false & đã có view/app
+  { key: 'pending',  label: 'Chờ duyệt' },  // isActive = false & chưa có view/app
 ];
 
 // Mã tin hiển thị
@@ -20,8 +21,8 @@ const jobCode = (index, page, pageSize) =>
 // Ngày đăng dạng VI
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
 
-// Badge trạng thái – xét deadline -> Hết hạn / Đã duyệt (vàng) / Đã khóa
-const StatusBadge = ({ isActive, deadline }) => {
+// Badge trạng thái – xét deadline -> Hết hạn / Đã duyệt (vàng) / Chờ duyệt / Đã khóa
+const StatusBadge = ({ isActive, deadline, viewsCount = 0, applicationsCount = 0 }) => {
   const now = Date.now();
   const deadlineTs = deadline ? new Date(deadline).getTime() : null;
   const isExpired = deadlineTs != null && deadlineTs < now;
@@ -34,8 +35,10 @@ const StatusBadge = ({ isActive, deadline }) => {
     classes = 'bg-orange-50 text-orange-700 ring-orange-200';
   } else if (isActive) {
     text = 'Đã duyệt';
-    // ⬇️ đổi sang màu vàng (amber)
     classes = 'bg-amber-50 text-amber-700 ring-amber-200';
+  } else if (!isActive && (viewsCount === 0 && applicationsCount === 0)) {
+    text = 'Chờ duyệt';
+    classes = 'bg-blue-50 text-blue-700 ring-blue-200';
   }
 
   return (
@@ -77,10 +80,15 @@ export default function MyJobs() {
   const getEmployerId = (u) =>
     u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
 
-  // Map tab -> tham số active cho API
+  /**
+   * Map tab -> tham số active cho API:
+   * - approved: active='true' (chỉ lấy job đã duyệt)
+   * - locked/pending: active='false' (chỉ lấy job không active, sau đó lọc tiếp phía client)
+   * - all: active='all'
+   */
   const activeParam = useMemo(() => {
     if (tab === 'approved') return 'true';
-    if (tab === 'locked') return 'false';
+    if (tab === 'locked' || tab === 'pending') return 'false';
     return 'all';
   }, [tab]);
 
@@ -122,12 +130,27 @@ export default function MyJobs() {
           itemsPerPage: PAGE_SIZE,
         };
 
-      const finalRows =
-        tab === 'pending' || tab === 'violations'
-          ? []
-          : Array.isArray(data)
-          ? data
-          : [];
+      const baseRows = Array.isArray(data) ? data : [];
+
+      // Lọc theo tab ngay trên client
+      let finalRows = baseRows;
+      if (tab === 'approved') {
+        finalRows = baseRows.filter((j) => !!j.isActive);
+      } else if (tab === 'locked') {
+        finalRows = baseRows.filter(
+          (j) =>
+            !j.isActive &&
+            ((j.viewsCount ?? 0) > 0 || (j.applicationsCount ?? 0) > 0),
+        );
+      } else if (tab === 'pending') {
+        finalRows = baseRows.filter(
+          (j) =>
+            !j.isActive &&
+            (j.viewsCount ?? 0) === 0 &&
+            (j.applicationsCount ?? 0) === 0,
+        );
+      }
+      // tab 'all' giữ nguyên baseRows
 
       setRows(finalRows);
       setPagination(pag);
@@ -164,7 +187,7 @@ export default function MyJobs() {
         });
         await load(page);
         alert(
-          'Không xóa được do ràng buộc dữ liệu. Tin đã được đóng (ẩn) để thay thế.'
+          'Không xóa được do ràng buộc dữ liệu. Tin đã được đóng (ẩn) để thay thế.',
         );
       } catch {
         alert(e?.response?.data?.message || 'Xóa thất bại');
@@ -256,7 +279,7 @@ export default function MyJobs() {
                       {jobCode(
                         idx,
                         page,
-                        pagination.itemsPerPage || PAGE_SIZE
+                        pagination.itemsPerPage || PAGE_SIZE,
                       )}
                     </td>
 
@@ -285,6 +308,8 @@ export default function MyJobs() {
                       <StatusBadge
                         isActive={!!j.isActive}
                         deadline={j.deadline}
+                        viewsCount={j.viewsCount ?? 0}
+                        applicationsCount={j.applicationsCount ?? 0}
                       />
                     </td>
 

@@ -1,3 +1,4 @@
+// client/src/components/employer/JobFormModal.jsx
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { jobService } from '../../services/api';
@@ -16,6 +17,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
     type: 'full-time',
     salary: '',
     experience: '',
+    headcount: '',     // 🆕 Số lượng cần tuyển
     description: '',
     requirements: '',
     category: '',
@@ -45,13 +47,12 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
   const parseLocation = (location) => {
     if (!location) return { province: '', district: '' };
-    const parts = String(location).split(',').map(s => s.trim());
+    const parts = String(location).split(',').map((s) => s.trim());
     if (parts.length >= 2) {
       const district = parts[0];
       const provinceName = parts.slice(1).join(', ');
 
-      // tìm theo name/includes (cover các trường hợp "TP.", "Thành phố")
-      const found = vietnamLocations.find(p => {
+      const found = vietnamLocations.find((p) => {
         const a = p.name.toLowerCase();
         const b = provinceName.toLowerCase();
         return a.includes(b) || b.includes(a);
@@ -98,10 +99,16 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
         type: job.type || 'full-time',
         salary: job.salary || '',
         experience: job.experience || '',
+        headcount: job.headcount != null ? String(job.headcount) : '', // 🆕
         description: job.description || '',
         requirements: job.requirements || '',
         category: job.category || '',
-        deadline: formatDeadline(job.deadline || job.expireDate || job.expiresAt || job.closingDate),
+        deadline: formatDeadline(
+          job.deadline ||
+            job.expireDate ||
+            job.expiresAt ||
+            job.closingDate,
+        ),
         jdText: job.jdText || '',
         mustHaveSkills: must,
       });
@@ -115,6 +122,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
         type: 'full-time',
         salary: '',
         experience: '',
+        headcount: '',      // 🆕
         description: '',
         requirements: '',
         category: '',
@@ -130,18 +138,18 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === 'province') {
-      const selected = vietnamLocations.find(p => p.code === value);
+      const selected = vietnamLocations.find((p) => p.code === value);
       setDistricts(selected ? selected.districts : []);
-      setFormData(prev => ({ ...prev, province: value, district: '' }));
+      setFormData((prev) => ({ ...prev, province: value, district: '' }));
     } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      setFormData((prev) => ({ ...prev, [name]: value }));
     }
   };
 
   const addMustHaveSkill = () => {
     const skill = mustHaveInput.trim().toLowerCase();
     if (skill && !formData.mustHaveSkills.includes(skill)) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         mustHaveSkills: [...prev.mustHaveSkills, skill],
       }));
@@ -150,9 +158,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
   };
 
   const removeMustHaveSkill = (skill) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      mustHaveSkills: prev.mustHaveSkills.filter(s => s !== skill),
+      mustHaveSkills: prev.mustHaveSkills.filter((s) => s !== skill),
     }));
   };
 
@@ -160,22 +168,41 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
     e.preventDefault();
 
     // basic validation
-    if (!formData.title.trim()) return toast.error('Vui lòng nhập tiêu đề công việc');
-    if (!formData.province) return toast.error('Vui lòng chọn Tỉnh/Thành phố');
-    if (!formData.district) return toast.error('Vui lòng chọn Quận/Huyện');
-    if (!formData.jdText.trim()) return toast.error('Vui lòng nhập mô tả chi tiết công việc (JD)');
-    if (formData.mustHaveSkills.length === 0) return toast.error('Vui lòng thêm ít nhất 1 kỹ năng bắt buộc');
-    if (!formData.deadline) return toast.error('Vui lòng chọn ngày hết hạn');
+    if (!formData.title.trim())
+      return toast.error('Vui lòng nhập tiêu đề công việc');
+    if (!formData.province)
+      return toast.error('Vui lòng chọn Tỉnh/Thành phố');
+    if (!formData.district)
+      return toast.error('Vui lòng chọn Quận/Huyện');
+    if (!formData.jdText.trim())
+      return toast.error('Vui lòng nhập mô tả chi tiết công việc (JD)');
+    if (formData.mustHaveSkills.length === 0)
+      return toast.error('Vui lòng thêm ít nhất 1 kỹ năng bắt buộc');
+    if (!formData.deadline)
+      return toast.error('Vui lòng chọn ngày hết hạn');
+
+    // headcount (nếu có) phải là số nguyên dương
+    if (formData.headcount) {
+      const h = Number(formData.headcount);
+      if (!Number.isInteger(h) || h <= 0) {
+        return toast.error('Số lượng cần tuyển phải là số nguyên dương');
+      }
+    }
 
     const deadlineDate = new Date(formData.deadline);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (deadlineDate < today) return toast.error('Ngày hết hạn phải từ hôm nay trở đi');
+    if (deadlineDate < today)
+      return toast.error('Ngày hết hạn phải từ hôm nay trở đi');
 
     setLoading(true);
     try {
-      const selectedProvince = vietnamLocations.find(p => p.code === formData.province);
-      const locationString = `${formData.district}, ${selectedProvince?.name || ''}`.trim();
+      const selectedProvince = vietnamLocations.find(
+        (p) => p.code === formData.province,
+      );
+      const locationString = `${formData.district}, ${
+        selectedProvince?.name || ''
+      }`.trim();
 
       // payload cơ bản
       const base = {
@@ -184,6 +211,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
         type: formData.type,
         salary: formData.salary || null,
         experience: formData.experience || null,
+        headcount: formData.headcount
+          ? Number(formData.headcount)
+          : null, // 🆕 gửi headcount
         description: formData.description || null,
         requirements: formData.requirements || null,
         category: formData.category || null,
@@ -195,17 +225,15 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
       };
 
       if (isEdit) {
-        // Tránh bump jdVersion không cần thiết: KHÔNG gửi niceToHaveSkills khi update
         await jobService.updateJob(job.id, base);
         toast.success('Cập nhật tin tuyển dụng thành công!');
       } else {
-        // Tạo mới: có thể gửi niceToHaveSkills rỗng để đảm bảo schema
         const payloadCreate = {
           ...base,
           niceToHaveSkills: JSON.stringify([]),
         };
         await jobService.createJob(payloadCreate);
-        toast.success('Tạo tin tuyển dụng thành công!');
+        toast.success('Tạo tin tuyển dụng thành công! Tin đang ở trạng thái chờ duyệt.');
       }
 
       onSuccess?.();
@@ -221,19 +249,28 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div
+          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          onClick={onClose}
+        />
 
         <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">
               {isEdit ? 'Chỉnh sửa tin tuyển dụng' : 'Tạo tin tuyển dụng mới'}
             </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-500"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-6 py-4 max-h-[70vh] overflow-y-auto">
+          <form
+            onSubmit={handleSubmit}
+            className="px-6 py-4 max-h-[70vh] overflow-y-auto"
+          >
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Title */}
@@ -298,9 +335,15 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     disabled={!formData.province}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
-                    <option value="">{formData.province ? '-- Chọn Quận/Huyện --' : '-- Chọn Tỉnh/TP trước --'}</option>
+                    <option value="">
+                      {formData.province
+                        ? '-- Chọn Quận/Huyện --'
+                        : '-- Chọn Tỉnh/TP trước --'}
+                    </option>
                     {districts.map((d, i) => (
-                      <option key={i} value={d}>{d}</option>
+                      <option key={i} value={d}>
+                        {d}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -308,7 +351,10 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                 {/* Work address */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    📍 Địa chỉ làm việc cụ thể <span className="ml-1 text-xs text-gray-500">(Tùy chọn)</span>
+                    📍 Địa chỉ làm việc cụ thể{' '}
+                    <span className="ml-1 text-xs text-gray-500">
+                      (Tùy chọn)
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -316,16 +362,19 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     value={formData.workAddress}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="VD: Tầng 10, APEC Office Building, 112 Phan Châu Trinh, P. Hải Châu 1, Q. Hải Châu, Đà Nẵng"
+                    placeholder="VD: Tầng 10, APEC Office Building, 112 Phan Châu Trinh..."
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Chỉ điền nếu vị trí này làm việc tại địa chỉ KHÁC với trụ sở chính (chi nhánh, dự án, cửa hàng…)
+                    Chỉ điền nếu vị trí này làm việc tại địa chỉ KHÁC với trụ sở
+                    chính (chi nhánh, dự án, cửa hàng…)
                   </p>
                 </div>
 
                 {/* Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Loại công việc</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Loại công việc
+                  </label>
                   <select
                     name="type"
                     value={formData.type}
@@ -341,7 +390,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
                 {/* Salary */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mức lương</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mức lương
+                  </label>
                   <input
                     type="text"
                     name="salary"
@@ -354,7 +405,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
                 {/* Experience */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kinh nghiệm</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Kinh nghiệm (năm)
+                  </label>
                   <input
                     type="text"
                     name="experience"
@@ -363,6 +416,25 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="2-5"
                   />
+                </div>
+
+                {/* Headcount */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Số lượng cần tuyển
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    name="headcount"
+                    value={formData.headcount}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="VD: 3"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Để trống nếu chưa xác định chính xác.
+                  </p>
                 </div>
 
                 {/* Deadline */}
@@ -378,12 +450,16 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     min={new Date().toISOString().split('T')[0]}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Ngày cuối cùng nhận hồ sơ ứng tuyển</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Ngày cuối cùng nhận hồ sơ ứng tuyển
+                  </p>
                 </div>
 
                 {/* Category */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Ngành nghề</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ngành nghề
+                  </label>
                   <input
                     type="text"
                     name="category"
@@ -397,7 +473,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả công việc</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mô tả công việc
+                </label>
                 <textarea
                   name="description"
                   value={formData.description}
@@ -410,7 +488,9 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
               {/* Requirements */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Yêu cầu công việc</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Yêu cầu công việc
+                </label>
                 <textarea
                   name="requirements"
                   value={formData.requirements}
@@ -423,10 +503,13 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
 
               {/* AI info */}
               <div className="border-t border-gray-200 pt-4 mt-4">
-                <h4 className="text-sm font-semibold text-gray-900 mb-3">🤖 Thông tin cho AI (quan trọng)</h4>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">
+                  🤖 Thông tin cho AI (quan trọng)
+                </h4>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mô tả chi tiết công việc (JD) <span className="text-red-500">*</span>
+                    Mô tả chi tiết công việc (JD){' '}
+                    <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     name="jdText"
@@ -437,17 +520,20 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     placeholder="Mô tả chi tiết yêu cầu công việc, kỹ năng cần thiết... AI sẽ dùng thông tin này để chấm điểm CV"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Ví dụ: 'Cần tuyển Backend Developer (Node.js) biết Express, JavaScript, MongoDB...'
+                    Ví dụ: 'Cần tuyển Backend Developer (Node.js) biết Express,
+                    JavaScript, MongoDB...'
                   </p>
                 </div>
 
                 {/* Must-have skills */}
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kỹ năng BẮT BUỘC <span className="text-red-500">*</span>
+                    Kỹ năng BẮT BUỘC{' '}
+                    <span className="text-red-500">*</span>
                   </label>
                   <p className="text-xs text-gray-600 mb-2 bg-yellow-50 border border-yellow-200 rounded p-2">
-                    ⚠️ <strong>Lưu ý:</strong> Tất cả kỹ năng ở đây đều là bắt buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm.
+                    ⚠️ <strong>Lưu ý:</strong> Tất cả kỹ năng ở đây đều là bắt
+                    buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm.
                   </p>
                   <div className="flex gap-2 mb-2">
                     <input
@@ -490,7 +576,8 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Gợi ý: nodejs, express, javascript, mongodb (hoặc nhóm DB khác phù hợp)
+                    Gợi ý: nodejs, express, javascript, mongodb (hoặc nhóm DB
+                    khác phù hợp)
                   </p>
                 </div>
               </div>
@@ -512,7 +599,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
               disabled={loading}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Đang lưu...' : (isEdit ? 'Cập nhật' : 'Tạo mới')}
+              {loading ? 'Đang lưu...' : isEdit ? 'Cập nhật' : 'Tạo mới'}
             </button>
           </div>
         </div>

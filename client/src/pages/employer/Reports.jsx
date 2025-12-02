@@ -39,16 +39,34 @@ const COLORS = {
   slate: '#64748B',      // slate-500
 };
 
-const PIE_COLORS = [COLORS.success, COLORS.primary, COLORS.warning, COLORS.danger, COLORS.purple, COLORS.slate];
+const PIE_COLORS = [
+  COLORS.success,
+  COLORS.primary,
+  COLORS.warning,
+  COLORS.danger,
+  COLORS.purple,
+  COLORS.slate,
+];
 
 /* ============== Việt hóa trạng thái ============== */
 const STATUS_VI = {
-  pending: 'Chờ xử lý',
-  reviewing: 'Đang xem xét',
-  shortlisted: 'Sơ tuyển',
-  interviewed: 'Phỏng vấn',
+  // Đơn vừa nộp, đã được gửi cho AI phân tích gần như ngay lập tức
+  pending: 'Đã nộp đơn',
+
+  // Giai đoạn AI đang thực sự chạy mô hình (nếu bạn có dùng status này)
+  reviewing: 'AI phân tích CV',
+
+  // Ứng viên mà AI đánh giá cao và NTD đã bấm "Mời phỏng vấn"
+  shortlisted: 'AI đề xuất ',
+
+  // Đã có lịch phỏng vấn cụ thể (tạo ở màn Quản lý ứng viên)
+  interviewed: 'Đã có lịch phỏng vấn',
+
+  // Đã được nhận
   accepted: 'Đã nhận',
-  rejected: 'Từ chối',        // ✅ thêm trạng thái Từ chối
+
+  // Đã bị từ chối
+  rejected: 'Từ chối',
 };
 
 /* ============== Components ============== */
@@ -70,13 +88,21 @@ const StatCard = ({ icon: Icon, label, value, subValue, trend, color = 'blue' })
           <div className="text-2xl font-bold text-slate-900">{value}</div>
           {subValue && <div className="text-xs text-slate-500 mt-1">{subValue}</div>}
           {trend && (
-            <div className={`text-xs mt-2 flex items-center gap-1 ${trend.up ? 'text-green-600' : 'text-rose-600'}`}>
+            <div
+              className={`text-xs mt-2 flex items-center gap-1 ${
+                trend.up ? 'text-green-600' : 'text-rose-600'
+              }`}
+            >
               {trend.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
               {trend.value}
             </div>
           )}
         </div>
-        <div className={`w-12 h-12 rounded-lg ${colorClasses[color]} ring-1 flex items-center justify-center`}>
+        <div
+          className={`w-12 h-12 rounded-lg ${
+            colorClasses[color]
+          } ring-1 flex items-center justify-center`}
+        >
           <Icon className="w-6 h-6" />
         </div>
       </div>
@@ -85,7 +111,9 @@ const StatCard = ({ icon: Icon, label, value, subValue, trend, color = 'blue' })
 };
 
 const SectionCard = ({ title, children, className = '', action }) => (
-  <div className={`bg-white rounded-xl border border-slate-200 p-6 overflow-hidden ${className}`}>
+  <div
+    className={`bg-white rounded-xl border border-slate-200 p-6 overflow-hidden ${className}`}
+  >
     <div className="flex items-center justify-between mb-4">
       <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
       {action}
@@ -99,9 +127,11 @@ const SkillBadge = ({ skill, count, type = 'matched' }) => {
     matched: 'bg-green-100 text-green-800 ring-green-200',
     missing: 'bg-red-100 text-red-800 ring-red-200',
   };
-  
+
   return (
-    <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ring-1 ${colors[type]}`}>
+    <div
+      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ring-1 ${colors[type]}`}
+    >
       <span>{skill}</span>
       <span className="opacity-75">({count})</span>
     </div>
@@ -137,7 +167,7 @@ const ErrorMessage = ({ message, onRetry }) => (
 export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   // Data states
   const [overview, setOverview] = useState(null);
   const [aiPerformance, setAiPerformance] = useState(null);
@@ -148,7 +178,7 @@ export default function Reports() {
   const loadData = async () => {
     setLoading(true);
     setError('');
-    
+
     try {
       const [overviewRes, aiPerfRes, funnelRes, trendsRes, topJobsRes] = await Promise.all([
         analyticsService.getOverview(),
@@ -165,7 +195,9 @@ export default function Reports() {
       setTopJobs(topJobsRes.data?.data || []);
     } catch (e) {
       console.error('Load analytics error:', e);
-      setError(e.response?.data?.message || e.message || 'Không thể tải dữ liệu báo cáo. Vui lòng thử lại.');
+      setError(
+        e.response?.data?.message || e.message || 'Không thể tải dữ liệu báo cáo. Vui lòng thử lại.'
+      );
     } finally {
       setLoading(false);
     }
@@ -177,7 +209,7 @@ export default function Reports() {
 
   // Sanitize trends (đảm bảo number)
   const trendsSafe = useMemo(() => {
-    return (trends || []).map(t => ({
+    return (trends || []).map((t) => ({
       month: t.month,
       applications: toNumber(t.applications),
       avgScore: toNumber(t.avgScore),
@@ -207,7 +239,7 @@ export default function Reports() {
       { name: 'Trung bình (40-59%)', value: toNumber(r.fair), color: COLORS.warning },
       { name: 'Yếu (0-39%)', value: toNumber(r.poor), color: COLORS.danger },
     ];
-    return data.filter(item => item.value > 0);
+    return data.filter((item) => item.value > 0);
   }, [overview]);
 
   /* ============== Phễu tuyển dụng + Từ chối ============== */
@@ -218,7 +250,7 @@ export default function Reports() {
     if (funnel.length) {
       const total = toNumber(funnel[0]?.count) || 1;
 
-      funnel.forEach(stage => {
+      funnel.forEach((stage) => {
         const count = toNumber(stage.count);
         const avgDays = toNumber(stage.avgDays);
 
@@ -233,7 +265,7 @@ export default function Reports() {
 
       // Nếu có số lượng rejected trong overview nhưng chưa có stage rejected trong funnel
       const rejectedCount = toNumber(overview?.statusCounts?.rejected);
-      const hasRejectedInFunnel = stages.some(s => s.status === 'rejected');
+      const hasRejectedInFunnel = stages.some((s) => s.status === 'rejected');
 
       if (rejectedCount > 0 && !hasRejectedInFunnel) {
         stages.push({
@@ -279,10 +311,10 @@ export default function Reports() {
   // Sanitize accuracy data
   const accuracyData = useMemo(() => {
     const arr = aiPerformance?.accuracy || [];
-    return arr.map(a => ({ ...a, accuracy: toNumber(a.accuracy) }));
+    return arr.map((a) => ({ ...a, accuracy: toNumber(a.accuracy) }));
   }, [aiPerformance]);
 
-  const hasAccuracy = accuracyData && accuracyData.some(a => a.accuracy > 0);
+  const hasAccuracy = accuracyData && accuracyData.some((a) => a.accuracy > 0);
 
   // Tổng ứng viên có score
   const totalAppsForSkills = useMemo(() => {
@@ -354,7 +386,7 @@ export default function Reports() {
             <Download className="w-4 h-4" />
             Xuất báo cáo
           </button>
-          
+
           <button
             onClick={loadData}
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -367,28 +399,28 @@ export default function Reports() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
+        <StatCard
           icon={FileText}
           label="Tổng số đơn ứng tuyển"
           value={fmtNumber(overview?.totalApplications || 0)}
           subValue={`${overview?.totalJobs || 0} tin tuyển dụng`}
           color="blue"
         />
-        <StatCard 
+        <StatCard
           icon={CheckCircle}
           label="Tỷ lệ chấp nhận"
           value={`${overview?.conversionRate || 0}%`}
           subValue={`${fmtNumber(overview?.statusCounts?.accepted || 0)} ứng viên`}
           color="green"
         />
-        <StatCard 
+        <StatCard
           icon={Award}
           label="Điểm AI trung bình"
           value={`${toNumber(overview?.aiMetrics?.avgScore).toFixed(1)}%`}
           subValue={`${fmtNumber(overview?.aiMetrics?.totalScored || 0)} CV đã chấm`}
           color="indigo"
         />
-        <StatCard 
+        <StatCard
           icon={Eye}
           label="Tổng lượt xem"
           value={fmtNumber(overview?.totalViews || 0)}
@@ -405,12 +437,12 @@ export default function Reports() {
                 <AreaChart data={trendsSafe}>
                   <defs>
                     <linearGradient id="colorApplications" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0}/>
+                      <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={COLORS.success} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={COLORS.success} stopOpacity={0}/>
+                      <stop offset="5%" stopColor={COLORS.success} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={COLORS.success} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -419,20 +451,20 @@ export default function Reports() {
                   <YAxis yAxisId="right" orientation="right" />
                   <Tooltip />
                   <Legend />
-                  <Area 
+                  <Area
                     yAxisId="left"
-                    type="monotone" 
-                    dataKey="applications" 
-                    stroke={COLORS.primary} 
+                    type="monotone"
+                    dataKey="applications"
+                    stroke={COLORS.primary}
                     fillOpacity={1}
                     fill="url(#colorApplications)"
                     name="Số đơn ứng tuyển"
                   />
-                  <Area 
+                  <Area
                     yAxisId="right"
-                    type="monotone" 
-                    dataKey="avgScore" 
-                    stroke={COLORS.success} 
+                    type="monotone"
+                    dataKey="avgScore"
+                    stroke={COLORS.success}
                     fillOpacity={1}
                     fill="url(#colorScore)"
                     name="Điểm AI TB (%)"
@@ -443,14 +475,26 @@ export default function Reports() {
               <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <div className="text-slate-400 mb-2">
-                    <svg className="w-16 h-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" 
+                    <svg
+                      className="w-16 h-16 mx-auto"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.5}
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2z"
                       />
                     </svg>
                   </div>
-                  <p className="text-sm text-slate-500">Chưa có dữ liệu trong 12 tháng qua</p>
-                  <p className="text-xs text-slate-400 mt-1">Dữ liệu sẽ hiển thị khi có ứng viên mới</p>
+                  <p className="text-sm text-slate-500">
+                    Chưa có dữ liệu trong 12 tháng qua
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Dữ liệu sẽ hiển thị khi có ứng viên mới
+                  </p>
                 </div>
               </div>
             )}
@@ -467,13 +511,18 @@ export default function Reports() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) =>
+                      `${name}: ${(percent * 100).toFixed(0)}%`
+                    }
                     outerRadius={90}
                     fill="#8884d8"
                     dataKey="value"
                   >
                     {statusDistribution.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -524,32 +573,51 @@ export default function Reports() {
                   <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
                   <Tooltip formatter={(value) => `${toNumber(value).toFixed(1)}%`} />
                   <Legend />
-                  <Bar dataKey="accuracy" fill={COLORS.indigo} name="Tỷ lệ chính xác (%)" />
+                  <Bar
+                    dataKey="accuracy"
+                    fill={COLORS.indigo}
+                    name="Tỷ lệ chính xác (%)"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <div className="text-slate-400 mb-2">
-                    <svg className="w-16 h-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-                        d="M9 17v1a1 1 0 001 1h4a1 1 0 001-1v-1m3-2V8a2 2 0 00-2-2H8a2 2 0 00-2 2v7m3-2h6l2 2v5a2 2 0 01-2 2H9a2 2 0 01-2-2v-5l2-2z" 
+                    <svg
+                      className="w-16 h-16 mx-auto"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.5}
+                        d="M9 17v1a1 1 0 001 1h4a1 1 0 001-1v-1m3-2V8a2 2 0 00-2-2H8a2 2 0 00-2 2v7m3-2h6l2 2v5a2 2 0 01-2 2H9a2 2 0 01-2-2v-5l2-2z"
                       />
                     </svg>
                   </div>
-                  <p className="text-sm text-slate-500">Chưa đủ dữ liệu để tính độ chính xác</p>
-                  <p className="text-xs text-slate-400 mt-1">Cần có ứng viên "Đã nhận" theo nhóm điểm</p>
+                  <p className="text-sm text-slate-500">
+                    Chưa đủ dữ liệu để tính độ chính xác
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Cần có ứng viên "Đã nhận" theo nhóm điểm
+                  </p>
                 </div>
               </div>
             )}
           </div>
           <div className="mt-4 text-sm text-slate-600">
-            <p>📊 Tỷ lệ chính xác = (Số ứng viên được nhận / Tổng số ứng viên trong nhóm điểm) × 100%</p>
+            <p>
+              📊 Tỷ lệ chính xác = (Số ứng viên được nhận / Tổng số ứng viên trong nhóm điểm)
+              × 100%
+            </p>
           </div>
         </SectionCard>
       </div>
 
-      {/* Charts Row 3: Funnel */}
+      {/* Charts Row 3: Phễu tuyển dụng */}
       <SectionCard title="Phễu tuyển dụng">
         <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
@@ -561,13 +629,9 @@ export default function Reports() {
               barGap={4}
             >
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                type="number"
-                domain={[0, funnelXMax]}
-                allowDecimals={false}
-              />
-              <YAxis type="category" dataKey="statusLabel" width={120} />
-              <Tooltip 
+              <XAxis type="number" domain={[0, funnelXMax]} allowDecimals={false} />
+              <YAxis type="category" dataKey="statusLabel" width={160} />
+              <Tooltip
                 labelFormatter={(label) => `Giai đoạn: ${label}`}
                 formatter={(value, name) => {
                   if (name === 'count') return [value, 'Số lượng'];
@@ -683,24 +747,28 @@ export default function Reports() {
                       {fmtNumber(job.applications)}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        parseFloat(job.conversionRate) >= 5 
-                          ? 'bg-green-100 text-green-800' 
-                          : parseFloat(job.conversionRate) >= 2
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          parseFloat(job.conversionRate) >= 5
+                            ? 'bg-green-100 text-green-800'
+                            : parseFloat(job.conversionRate) >= 2
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
                         {job.conversionRate}%
                       </span>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        parseFloat(job.avgScore) >= 70 
-                          ? 'bg-green-100 text-green-800' 
-                          : parseFloat(job.avgScore) >= 50
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          parseFloat(job.avgScore) >= 70
+                            ? 'bg-green-100 text-green-800'
+                            : parseFloat(job.avgScore) >= 50
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
                         {job.avgScore}%
                       </span>
                     </td>
@@ -708,7 +776,10 @@ export default function Reports() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-sm text-slate-500"
+                  >
                     Chưa có dữ liệu
                   </td>
                 </tr>

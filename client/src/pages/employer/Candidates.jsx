@@ -1,3 +1,4 @@
+// client/src/pages/employer/Candidates.jsx
 import React, {
   useMemo,
   useState,
@@ -10,7 +11,9 @@ import { toast } from 'react-toastify';
 import { Download, Edit2, Trash2, MessageCircle } from 'lucide-react';
 import { useEmployerChat } from '../../contexts/EmployerChatContext';
 
-const CANCEL_TARGET_STATUS = 'shortlisted';
+// Nếu hủy từ danh sách (nút "Hủy" màu đỏ) thì chuyển sang rejected
+const CANCEL_TARGET_STATUS = 'rejected';
+
 // --- UTILS ---
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -89,7 +92,10 @@ const parseSkillsFlexible = (skills) => {
     }
   }
   if (typeof skills === 'object') {
-    return Object.entries(skills).map(([k, v]) => ({ name: k, level: String(v || '').trim() }));
+    return Object.entries(skills).map(([k, v]) => ({
+      name: k,
+      level: String(v || '').trim(),
+    }));
   }
   return [];
 };
@@ -141,7 +147,6 @@ const InterviewProvider = ({ children }) => {
     }
   }, [events, storageKey]);
 
-  // Gửi kèm interviewTime + interviewMode khi tạo lịch
   const addEvent = async (event) => {
     const existing = events.find((e) => e.applicationId === event.applicationId);
     if (existing) {
@@ -157,10 +162,11 @@ const InterviewProvider = ({ children }) => {
         }
       }
 
+      // Khi tạo lịch: chuyển trạng thái sang interviewed và để backend gửi email mời
       await applicationService.updateApplicationStatus(event.applicationId, {
         status: 'interviewed',
-        interviewTime: interviewTime,
-        interviewMode: event.mode, 
+        interviewTime,
+        interviewMode: event.mode,
       });
 
       setEvents((prev) => [...prev, event]);
@@ -181,27 +187,32 @@ const InterviewProvider = ({ children }) => {
     toast.success('Đã cập nhật lịch phỏng vấn!');
   };
 
+  // XÓA LỊCH: chỉ xóa event, nếu là lịch cuối cùng thì đưa ứng viên về shortlisted
   const deleteEvent = async (eventId) => {
     const event = events.find((e) => e.id === eventId);
     if (!event) return false;
+
     try {
       const remainingEvents = events.filter(
         (e) => e.id !== eventId && e.applicationId === event.applicationId
       );
+
       setEvents((prev) => prev.filter((e) => e.id !== eventId));
+
       if (remainingEvents.length === 0) {
-        await applicationService.updateApplicationStatus(
-          event.applicationId,
-          CANCEL_TARGET_STATUS
-        );
+        // Không còn lịch nào cho ứng viên này → quay về trạng thái "đã mời"
+        await applicationService.updateApplicationStatus(event.applicationId, {
+          status: 'shortlisted',
+          interviewTime: null,
+          interviewMode: null,
+        });
         toast.success(
-          `Đã xóa lịch phỏng vấn và chuyển về "${
-            CANCEL_TARGET_STATUS === 'shortlisted' ? 'Duyệt sơ tuyển' : 'Quản lý CV'
-          }"!`
+          'Đã hủy lịch phỏng vấn. Ứng viên quay về trạng thái "Đã mời (chờ xếp lịch)".'
         );
       } else {
         toast.success('Đã xóa lịch phỏng vấn!');
       }
+
       setReloadTrigger((prev) => prev + 1);
       return true;
     } catch (error) {
@@ -216,8 +227,10 @@ const InterviewProvider = ({ children }) => {
 
   const getEventsByApplication = (applicationId) =>
     events.filter((e) => e.applicationId === applicationId);
+
   const clearEventsByApplication = (applicationId) =>
     setEvents((prev) => prev.filter((e) => e.applicationId !== applicationId));
+
   const forceReload = () => setReloadTrigger((prev) => prev + 1);
 
   return (
@@ -387,7 +400,20 @@ function getMonthMatrix(year, month) {
 }
 
 const weekdaysVi = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-const monthsVi = ['Th1', 'Th2', 'Th3', 'Th4', 'Th5', 'Th6', 'Th7', 'Th8', 'Th9', 'Th10', 'Th11', 'Th12'];
+const monthsVi = [
+  'Th1',
+  'Th2',
+  'Th3',
+  'Th4',
+  'Th5',
+  'Th6',
+  'Th7',
+  'Th8',
+  'Th9',
+  'Th10',
+  'Th11',
+  'Th12',
+];
 
 const MonthView = ({ year, month, todayKey, eventsByDay, onCreateRange }) => {
   const [dragging, setDragging] = useState(false);
@@ -583,7 +609,7 @@ function InterviewFormModal({
     }
     onSubmit?.(
       {
-        id: editEvent?.id || Math.random().toString(36).slice(2, 10),
+        id: editEvent?.id || uid(),
         applicationId,
         title: title.trim(),
         dateKey: date,
@@ -1170,7 +1196,7 @@ function CandidateDetailModal({ open, onClose, application, onStatusChange }) {
 }
 
 const AcceptedListTab = () => {
-  const { openWithApplication } = useEmployerChat(); // dùng context popup chat
+  const { openWithApplication } = useEmployerChat();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
@@ -1219,11 +1245,13 @@ const AcceptedListTab = () => {
         applicationService.getApplications({ status: 'interviewed', limit: 300 }),
         applicationService.getApplications({ status: 'accepted', limit: 300 }),
       ]);
+
       const allList = [
         ...(shortlistedRes?.data?.data || shortlistedRes?.data || []),
         ...(interviewedRes?.data?.data || interviewedRes?.data || []),
         ...(acceptedRes?.data?.data || acceptedRes?.data || []),
       ];
+
       setItems(
         allList.map((a) => ({
           id: a.id,
@@ -1278,13 +1306,13 @@ const AcceptedListTab = () => {
     }
   };
   const handleCancel = async (application) => {
-    if (!window.confirm('Hủy và chuyển ứng viên về "Quản lý CV"?')) return;
+    if (!window.confirm('Xác nhận TỪ CHỐI và hủy lịch phỏng vấn?')) return;
     setCancelLoadingId(application.id);
     try {
       clearEventsByApplication?.(application.id);
       await applicationService.updateApplicationStatus(application.id, CANCEL_TARGET_STATUS);
       setItems((prev) => prev.filter((x) => x.id !== application.id));
-      toast.success('Đã chuyển ứng viên về "Quản lý CV".');
+      toast.success('Đã hủy lịch và từ chối ứng viên.');
     } catch (e) {
       toast.error(e?.response?.data?.message || 'Hủy thất bại.');
     } finally {
@@ -1293,7 +1321,6 @@ const AcceptedListTab = () => {
   };
 
   const handleChat = (application) => {
-    // MỞ POPUP CHAT VỚI ỨNG VIÊN TƯƠNG ỨNG
     openWithApplication(application);
   };
 
@@ -1302,13 +1329,13 @@ const AcceptedListTab = () => {
       case 'shortlisted':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-            Duyệt sơ tuyển
+            Đã mời (chờ xếp lịch)
           </span>
         );
       case 'interviewed':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
-            Phỏng vấn
+            Đã có lịch phỏng vấn
           </span>
         );
       case 'accepted':
@@ -1330,7 +1357,7 @@ const AcceptedListTab = () => {
             <div>Ứng viên</div>
             <div>Vị trí</div>
             <div>Trạng thái</div>
-            <div>Ngày duyệt</div>
+            <div>Ngày</div>
             <div className="text-right">Thao tác</div>
           </div>
 
@@ -1353,7 +1380,6 @@ const AcceptedListTab = () => {
             <ul className="divide-y divide-slate-100">
               {pageItems.map((it) => {
                 const isAccepted = it.status === 'accepted';
-                const isInterviewed = it.status === 'interviewed';
                 return (
                   <li
                     key={it.id}
@@ -1364,7 +1390,10 @@ const AcceptedListTab = () => {
                         {it.candidate?.name || 'Không tên'}
                       </div>
                       <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
-                        <div className="flex items-center gap-1.5 truncate" title={it.candidate?.email}>
+                        <div
+                          className="flex items-center gap-1.5 truncate"
+                          title={it.candidate?.email}
+                        >
                           <EmailIcon className="w-3.5 h-3.5 shrink-0" />
                           <span className="truncate">{it.candidate?.email}</span>
                         </div>
@@ -1386,7 +1415,7 @@ const AcceptedListTab = () => {
                     </div>
 
                     <div className="flex items-center justify-end gap-2">
-                      {/* 1. Chat */}
+                      {/* Chat */}
                       <button
                         onClick={() => handleChat(it)}
                         className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -1395,7 +1424,7 @@ const AcceptedListTab = () => {
                         <MessageCircle className="w-4 h-4" />
                       </button>
 
-                      {/* 2. Chi tiết (Blue) */}
+                      {/* Chi tiết */}
                       <button
                         onClick={() => handleViewDetails(it)}
                         className="h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 shadow-sm transition-colors"
@@ -1405,16 +1434,12 @@ const AcceptedListTab = () => {
 
                       {!isAccepted ? (
                         <>
-                          {/* 3. Trúng tuyển (Emerald/Green) */}
+                          {/* Trúng tuyển */}
                           <button
                             onClick={() => handleHire(it.id)}
-                            disabled={hireLoadingId === it.id || !isInterviewed}
-                            className={`h-8 px-3 rounded-md text-xs font-medium text-white shadow-sm flex items-center gap-1 transition-colors ${
-                              !isInterviewed
-                                ? 'bg-slate-300 cursor-not-allowed opacity-80'
-                                : 'bg-emerald-600 hover:bg-emerald-700'
-                            }`}
-                            title={!isInterviewed ? 'Phải phỏng vấn trước' : 'Xác nhận trúng tuyển'}
+                            disabled={hireLoadingId === it.id}
+                            className="h-8 px-3 rounded-md text-xs font-medium text-white shadow-sm flex items-center gap-1 transition-colors bg-emerald-600 hover:bg-emerald-700"
+                            title="Xác nhận trúng tuyển"
                           >
                             {hireLoadingId === it.id ? (
                               <span className="animate-spin w-3 h-3 border-2 border-white/30 border-t-white rounded-full"></span>
@@ -1424,7 +1449,7 @@ const AcceptedListTab = () => {
                             Trúng tuyển
                           </button>
 
-                          {/* 4. Hủy (Red) */}
+                          {/* Hủy (từ chối luôn) */}
                           <button
                             onClick={() => handleCancel(it)}
                             disabled={cancelLoadingId === it.id}
@@ -1454,7 +1479,7 @@ const AcceptedListTab = () => {
           )}
         </div>
 
-        {Math.max(1, Math.ceil(items.length / PAGE_SIZE)) > 1 && (
+        {totalPages > 1 && (
           <div className="mt-4 flex items-center justify-end gap-2">
             <button
               className="h-8 w-8 grid place-items-center rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-50 bg-white text-slate-600"
@@ -1466,12 +1491,8 @@ const AcceptedListTab = () => {
             <span className="text-sm font-medium text-slate-600 px-2">Trang {pageSafe}</span>
             <button
               className="h-8 w-8 grid place-items-center rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-50 bg-white text-slate-600"
-              onClick={() =>
-                setPage((p) =>
-                  Math.min(Math.max(1, Math.ceil(items.length / PAGE_SIZE)), p + 1)
-                )
-              }
-              disabled={pageSafe >= Math.max(1, Math.ceil(items.length / PAGE_SIZE))}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={pageSafe >= totalPages}
             >
               ›
             </button>
@@ -1508,6 +1529,7 @@ const InterviewTab = () => {
     let alive = true;
     (async () => {
       try {
+        // Lấy các ứng viên đã mời (shortlisted) nhưng chưa có lịch trong calendar
         const res = await applicationService.getApplications({ status: 'shortlisted', limit: 300 });
         const list = res?.data?.data || res?.data || [];
         const existingAppIds = new Set(events.map((e) => e.applicationId));
@@ -1627,7 +1649,7 @@ const InterviewTab = () => {
         title={
           appOptions.length > 0
             ? 'Tạo lịch phỏng vấn'
-            : 'Không có ứng viên duyệt sơ tuyển hoặc tất cả đã có lịch'
+            : 'Không có ứng viên đã mời hoặc tất cả đã có lịch'
         }
         disabled={appOptions.length === 0}
       >
@@ -1654,7 +1676,7 @@ function CandidatesContent() {
           Quản lý ứng viên
         </div>
         <div className="text-sm text-slate-500 mt-1">
-          Danh sách ứng viên đã được duyệt sơ tuyển từ "Quản lý CV"
+          Logic: Hiển thị những ứng viên bạn đã mời (shortlisted), đã có lịch phỏng vấn (interviewed) và đã nhận (accepted).
         </div>
       </div>
       <Tabs active={active} onChange={setActive} />

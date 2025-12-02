@@ -135,6 +135,7 @@ app.use('/api/saved-jobs', require('./src/routes/savedJobRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/analytics', require('./src/routes/analyticsRoutes'));
 app.use('/api/chat', require('./src/routes/chatRoutes')); // ⬅️ route chat mới
+app.use('/api/ai', require('./src/routes/aiRoutes'));
 
 /* ============ Error handler ============ */
 app.use((err, _req, res, _next) => {

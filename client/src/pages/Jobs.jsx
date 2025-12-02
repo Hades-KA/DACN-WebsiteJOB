@@ -41,7 +41,7 @@ const typeEnMap = {
   'Thực tập': 'intern',
 };
 
-/* ========== BÀI VIẾT MỚI (dùng lại nội dung Cẩm nang việc làm) ========== */
+/* ========== BÀI VIẾT MỚI ========== */
 const GUIDE_POSTS = [
   {
     id: 1,
@@ -182,7 +182,7 @@ function timeAgo(d) {
 }
 
 /* ================= List Item (giống video + nút Lưu) ================= */
-function JobListItem({ job, onClick, saved, saving, onToggleSave }) {
+function JobListItem({ job, onClick, saved, saving, onToggleSave, useAI }) {
   return (
     <div
       onClick={onClick}
@@ -221,6 +221,18 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave }) {
               {timeAgo(job.createdAt) || 'Mới đăng'}
             </span>
           </div>
+
+          {/* Thông tin AI gợi ý */}
+          {useAI && typeof job.scoreTotal === 'number' && (
+            <div className="mt-1 text-xs text-blue-600">
+              AI đánh giá mức độ phù hợp: {Math.round(job.scoreTotal)}%
+            </div>
+          )}
+          {useAI && job.explanation && (
+            <div className="mt-0.5 text-[11px] text-gray-500 line-clamp-2">
+              {job.explanation}
+            </div>
+          )}
         </div>
       </div>
 
@@ -281,6 +293,10 @@ export default function Jobs() {
   const [savedMap, setSavedMap] = useState({});
   const [savingMap, setSavingMap] = useState({});
 
+  // AI mode
+  const [useAI, setUseAI] = useState(false);
+  const [aiError, setAiError] = useState('');
+
   // Fetch saved jobs (nếu đã đăng nhập)
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -307,61 +323,129 @@ export default function Jobs() {
     };
   }, []);
 
-  // Fetch server-side mỗi khi filter/sort/page đổi
+  // Fetch server-side / AI mỗi khi filter/sort/page/useAI đổi
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         setLoading(true);
-        const query = { page, limit, sort };
-        if (keyword.trim()) query.search = keyword.trim();
-        if (skill.trim()) query.skills = skill.trim();
-        if (location.trim()) query.location = location.trim();
-        if (category) query.category = category;
-        if (level) query.level = level;
-        if (experience) query.experience = experience;
-        if (salary) query.salary = salary;
-        if (education) query.education = education;
-        if (type) query.type = typeEnMap[type] || type;
-        if (posted) query.posted = posted;
+        setAiError('');
 
-        const res = await jobService.getAllJobs(query);
-        const raw = res?.data || {};
-        const list = Array.isArray(raw.data)
-          ? raw.data
-          : Array.isArray(raw)
-          ? raw
-          : [];
-        const pagination =
-          raw.pagination || raw.meta || { totalItems: list.length, totalPages: 1 };
+        if (useAI) {
+          // ===== CHẾ ĐỘ AI: gọi API gợi ý job =====
+          const token = localStorage.getItem('token');
+          if (!token) {
+            if (active) {
+              setJobs([]);
+              setMeta({ totalItems: 0, totalPages: 0 });
+              setAiError('Vui lòng đăng nhập để AI gợi ý việc làm phù hợp.');
+            }
+            return;
+          }
 
-        if (!active) return;
-        setJobs(
-          list.map((j, i) => ({
-            id: j.id || j._id || `j-${i}`,
-            title: j.title || j.name || '',
-            company:
-              j.company ||
-              j.employer?.company ||
-              j.employer?.name ||
-              'Công ty ẩn danh',
-            companyLogo: j.companyLogo || j.employer?.logoUrl || '',
-            location: j.location || '',
-            salary: j.salary || '',
-            salaryBand: j.salaryBand || '',
-            type: j.type || '',
-            createdAt: j.createdAt || j.publishedAt || '',
-            category: j.category || '',
-          }))
-        );
-        setMeta({
-          totalItems: parseInt(pagination.totalItems || 0, 10),
-          totalPages: parseInt(pagination.totalPages || 1, 10),
-        });
-      } catch {
+          // Lấy candidateId từ localStorage.user
+          let me = null;
+          try {
+            const raw = localStorage.getItem('user');
+            if (raw && raw !== 'undefined' && raw !== 'null') {
+              me = JSON.parse(raw);
+            }
+          } catch {
+            me = null;
+          }
+          const candidateId = me?.id || me?.userId || me?._id || null;
+          if (!candidateId) {
+            if (active) {
+              setJobs([]);
+              setMeta({ totalItems: 0, totalPages: 0 });
+              setAiError(
+                'Không xác định được hồ sơ ứng viên. Vui lòng đăng nhập lại.'
+              );
+            }
+            return;
+          }
+
+          const res = await api.get(
+            `/ai/job-recommendations/${candidateId}?threshold=60`
+          );
+          if (!active) return;
+          const list = res?.data?.data || res?.data || [];
+          const mapped = Array.isArray(list)
+            ? list.map((item, i) => ({
+                id: item.job.id || `ai-${i}`,
+                title: item.job.title,
+                company: item.job.company,
+                companyLogo: item.job.companyLogo || '',
+                location: item.job.location || '',
+                salary: item.job.salary || 'Thoả thuận',
+                createdAt: item.job.createdAt || null,   // ✅ DÙNG NGÀY TỪ BACKEND
+                category: '',
+                scoreTotal: item.scoreTotal || 0,
+                explanation: item.explanation || '',
+              }))
+            : [];
+
+          setJobs(mapped);
+          setMeta({ totalItems: mapped.length, totalPages: 1 });
+        } else {
+          // ===== CHẾ ĐỘ THƯỜNG: gọi jobService như trước =====
+          const query = { page, limit, sort };
+          if (keyword.trim()) query.search = keyword.trim();
+          if (skill.trim()) query.skills = skill.trim();
+          if (location.trim()) query.location = location.trim();
+          if (category) query.category = category;
+          if (level) query.level = level;
+          if (experience) query.experience = experience;
+          if (salary) query.salary = salary;
+          if (education) query.education = education;
+          if (type) query.type = typeEnMap[type] || type;
+          if (posted) query.posted = posted;
+
+          const res = await jobService.getAllJobs(query);
+          const raw = res?.data || {};
+          const list = Array.isArray(raw.data)
+            ? raw.data
+            : Array.isArray(raw)
+            ? raw
+            : [];
+          const pagination =
+            raw.pagination || raw.meta || { totalItems: list.length, totalPages: 1 };
+
+          if (!active) return;
+          setJobs(
+            list.map((j, i) => ({
+              id: j.id || j._id || `j-${i}`,
+              title: j.title || j.name || '',
+              company:
+                j.company ||
+                j.employer?.company ||
+                j.employer?.name ||
+                'Công ty ẩn danh',
+              companyLogo: j.companyLogo || j.employer?.logoUrl || '',
+              location: j.location || '',
+              salary: j.salary || '',
+              salaryBand: j.salaryBand || '',
+              type: j.type || '',
+              createdAt: j.createdAt || j.publishedAt || '',
+              category: j.category || '',
+            }))
+          );
+          setMeta({
+            totalItems: parseInt(pagination.totalItems || 0, 10),
+            totalPages: parseInt(pagination.totalPages || 1, 10),
+          });
+        }
+      } catch (e) {
         if (!active) return;
         setJobs([]);
         setMeta({ totalItems: 0, totalPages: 0 });
+        if (useAI) {
+          setAiError(
+            e?.response?.data?.message ||
+              e.message ||
+              'Không thể lấy danh sách việc làm gợi ý từ AI.'
+          );
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -382,9 +466,10 @@ export default function Jobs() {
     posted,
     sort,
     page,
+    useAI,
   ]);
 
-  // Đồng bộ URL
+  // Đồng bộ URL (không sync useAI vào URL)
   useEffect(() => {
     const next = new URLSearchParams();
     if (keyword.trim()) next.set('search', keyword.trim());
@@ -456,7 +541,7 @@ export default function Jobs() {
         });
       }
     } catch {
-      // im lặng để UI nhẹ nhàng
+      // im lặng
     } finally {
       setSavingMap((m) => {
         const n = { ...m };
@@ -484,6 +569,7 @@ export default function Jobs() {
                   }}
                   placeholder="Tìm kiếm cơ hội việc làm"
                   className="flex-1 bg-transparent outline-none text-sm"
+                  disabled={useAI}
                 />
               </div>
             </div>
@@ -631,30 +717,74 @@ export default function Jobs() {
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
-              Tuyển dụng{' '}
-              <span className="text-blue-600">{total}</span> việc làm mới nhất năm{' '}
-              <span className="text-rose-600">{currentYear}</span>
-            </h1>
+            <div className="flex flex-col gap-1">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+                {useAI ? (
+                  <>
+                    Việc làm phù hợp với bạn (AI){' '}
+                    <span className="text-blue-600">{total}</span> việc
+                  </>
+                ) : (
+                  <>
+                    Tuyển dụng{' '}
+                    <span className="text-blue-600">{total}</span> việc làm mới
+                    nhất năm <span className="text-rose-600">{currentYear}</span>
+                  </>
+                )}
+              </h1>
+              {useAI && (
+                <p className="text-xs text-gray-500">
+                  AI phân tích CV của bạn và gợi ý những công việc có mức độ phù
+                  hợp kỹ năng cao nhất.
+                </p>
+              )}
+            </div>
 
-            <div className="flex items-center gap-2">
-              <label htmlFor="sort" className="text-sm text-gray-500">
-                Sắp xếp:
-              </label>
-              <select
-                id="sort"
-                value={sort}
-                onChange={(e) => {
-                  setSort(e.target.value);
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setUseAI((prev) => !prev);
                   setPage(1);
                 }}
-                className="h-9 px-3 text-sm bg-white border rounded-lg"
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  useAI
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'
+                }`}
+                title="AI sẽ dựa trên CV của bạn để gợi ý việc làm phù hợp"
               >
-                <option value="newest">Mới nhất</option>
-                <option value="oldest">Cũ nhất</option>
-              </select>
+                {useAI ? 'Đang xem việc phù hợp (AI)' : 'Tìm việc phù hợp (AI)'}
+              </button>
+
+              {!useAI && (
+                <>
+                  <label
+                    htmlFor="sort"
+                    className="text-sm text-gray-500"
+                  >
+                    Sắp xếp:
+                  </label>
+                  <select
+                    id="sort"
+                    value={sort}
+                    onChange={(e) => {
+                      setSort(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-9 px-3 text-sm bg-white border rounded-lg"
+                  >
+                    <option value="newest">Mới nhất</option>
+                    <option value="oldest">Cũ nhất</option>
+                  </select>
+                </>
+              )}
             </div>
           </div>
+
+          {useAI && aiError && (
+            <div className="mt-2 text-sm text-red-500">{aiError}</div>
+          )}
         </div>
 
         <div className="grid grid-cols-12 gap-5">
@@ -663,7 +793,10 @@ export default function Jobs() {
             {loading ? (
               <div className="space-y-3">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="h-[96px] bg-white border rounded-xl animate-pulse" />
+                  <div
+                    key={i}
+                    className="h-[96px] bg-white border rounded-xl animate-pulse"
+                  />
                 ))}
               </div>
             ) : jobs.length === 0 ? (
@@ -681,42 +814,49 @@ export default function Jobs() {
                     saved={!!savedMap[job.id]}
                     saving={!!savingMap[job.id]}
                     onToggleSave={toggleSave}
+                    useAI={useAI}
                   />
                 ))}
               </div>
             )}
 
-            {/* Pagination */}
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="px-4 h-9 rounded-full border bg-white text-gray-700 disabled:opacity-50"
-              >
-                ← Trước
-              </button>
-              <span className="text-sm text-gray-600">
-                Trang {page} / {Math.max(1, meta.totalPages || 1)}
-              </span>
-              <button
-                onClick={() =>
-                  setPage((p) =>
-                    meta.totalPages ? Math.min(meta.totalPages, p + 1) : p + 1
-                  )
-                }
-                disabled={meta.totalPages ? page >= meta.totalPages : false}
-                className="px-4 h-9 rounded-full border bg-white text-gray-700 disabled:opacity-50"
-              >
-                Sau →
-              </button>
-            </div>
+            {/* Pagination - chỉ dùng khi không phải AI mode */}
+            {!useAI && (
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="px-4 h-9 rounded-full border bg-white text-gray-700 disabled:opacity-50"
+                >
+                  ← Trước
+                </button>
+                <span className="text-sm text-gray-600">
+                  Trang {page} / {Math.max(1, meta.totalPages || 1)}
+                </span>
+                <button
+                  onClick={() =>
+                    setPage((p) =>
+                      meta.totalPages
+                        ? Math.min(meta.totalPages, p + 1)
+                        : p + 1
+                    )
+                  }
+                  disabled={meta.totalPages ? page >= meta.totalPages : false}
+                  className="px-4 h-9 rounded-full border bg-white text-gray-700 disabled:opacity-50"
+                >
+                  Sau →
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
           <aside className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-4">
             {/* Công ty nổi bật */}
             <div className="bg-white border rounded-2xl p-4">
-              <h3 className="font-semibold text-gray-900 mb-3">Công ty nổi bật</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">
+                Công ty nổi bật
+              </h3>
               <div className="text-sm text-gray-500 flex items-center justify-center h-24">
                 No data
               </div>

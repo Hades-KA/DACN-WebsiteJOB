@@ -1,3 +1,4 @@
+// client/src/pages/JobDetail.jsx
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api, { jobService, cvService, applicationService, userService } from '../services/api';
@@ -12,7 +13,7 @@ import {
   ListChecks,
   Phone,
   Mail,
-  Globe
+  Globe,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -74,7 +75,7 @@ function parseList(raw) {
       const v = JSON.parse(raw);
       if (Array.isArray(v)) return v.filter(Boolean);
     } catch {}
-    return raw.split(',').map(s => s.trim()).filter(Boolean);
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
   }
   return [];
 }
@@ -99,11 +100,18 @@ export default function JobDetail() {
 
   const [tab, setTab] = useState('desc');
 
+  // Số ứng viên đã được nhận (accepted) cho job này
+  const [acceptedCount, setAcceptedCount] = useState(0);
+
   const userRaw = localStorage.getItem('user');
-  const currentUser = userRaw && userRaw !== 'undefined' && userRaw !== 'null' ? JSON.parse(userRaw) : null;
+  const currentUser =
+    userRaw && userRaw !== 'undefined' && userRaw !== 'null'
+      ? JSON.parse(userRaw)
+      : null;
   const userType = currentUser?.userType || currentUser?.role;
   const currentUserId = currentUser?.id || currentUser?.userId || currentUser?._id || null;
 
+  // Load job
   useEffect(() => {
     let active = true;
     (async () => {
@@ -120,9 +128,12 @@ export default function JobDetail() {
         if (active) setLoading(false);
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [id]);
 
+  // Kiểm tra đã apply chưa
   useEffect(() => {
     let active = true;
     (async () => {
@@ -142,13 +153,46 @@ export default function JobDetail() {
         const list = res?.data?.data || res?.data || [];
         if (active) setApplied(Array.isArray(list) && list.length > 0);
       } catch (e) {
-        console.warn('check applied failed:', e?.response?.status, e?.response?.data || e?.message);
+        console.warn(
+          'check applied failed:',
+          e?.response?.status,
+          e?.response?.data || e?.message
+        );
         if (active) setApplied(false);
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [job?.id, currentUserId]);
 
+  // Đếm số ứng viên đã accepted để biết job có full slot không
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!job?.id) {
+        if (active) setAcceptedCount(0);
+        return;
+      }
+      try {
+        const res = await applicationService.getApplications({
+          jobId: job.id,
+          status: 'accepted',
+          limit: 1000,
+          page: 1,
+        });
+        const list = res?.data?.data || res?.data || [];
+        if (active) setAcceptedCount(Array.isArray(list) ? list.length : 0);
+      } catch (e) {
+        if (active) setAcceptedCount(0);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [job?.id]);
+
+  // Kiểm tra đã lưu job chưa
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token || !job?.id) {
@@ -166,20 +210,29 @@ export default function JobDetail() {
           for (const it of list) {
             const j = it?.job || it || {};
             const jid = j.id || j._id;
-            if (String(jid) === String(job.id)) { found = it; break; }
+            if (String(jid) === String(job.id)) {
+              found = it;
+              break;
+            }
           }
         }
         if (active) {
           setIsSaved(!!found);
-          setSavedId(found ? (found.id || found.savedId || found._id || null) : null);
+          setSavedId(found ? found.id || found.savedId || found._id || null : null);
         }
       } catch {
-        if (active) { setIsSaved(false); setSavedId(null); }
+        if (active) {
+          setIsSaved(false);
+          setSavedId(null);
+        }
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [job?.id]);
 
+  // Load việc tương tự
   useEffect(() => {
     if (!job?.category && !job?.location) return;
     let active = true;
@@ -191,17 +244,40 @@ export default function JobDetail() {
         if (job.location) q.location = job.location;
 
         let res = await jobService.getAllJobs(q);
-        let list = Array.isArray(res?.data?.data) ? res.data.data : (Array.isArray(res?.data) ? res.data : []);
-        if (active && list.length > 0) { setSimilar(list.map(normalizeJob)); return; }
+        let list = Array.isArray(res?.data?.data)
+          ? res.data.data
+          : Array.isArray(res?.data)
+          ? res.data
+          : [];
+        if (active && list.length > 0) {
+          setSimilar(list.map(normalizeJob));
+          return;
+        }
 
         if (job.category) {
-          res = await jobService.getAllJobs({ category: job.category, limit: 8, sort: 'newest', exclude: job.id });
-          list = Array.isArray(res?.data?.data) ? res.data.data : (Array.isArray(res?.data) ? res.data : []);
-          if (active && list.length > 0) { setSimilar(list.map(normalizeJob)); return; }
+          res = await jobService.getAllJobs({
+            category: job.category,
+            limit: 8,
+            sort: 'newest',
+            exclude: job.id,
+          });
+          list = Array.isArray(res?.data?.data)
+            ? res.data.data
+            : Array.isArray(res?.data)
+            ? res.data
+            : [];
+          if (active && list.length > 0) {
+            setSimilar(list.map(normalizeJob));
+            return;
+          }
         }
 
         res = await jobService.getAllJobs({ limit: 8, sort: 'newest', exclude: job.id });
-        list = Array.isArray(res?.data?.data) ? res.data.data : (Array.isArray(res?.data) ? res.data : []);
+        list = Array.isArray(res?.data?.data)
+          ? res.data.data
+          : Array.isArray(res?.data)
+          ? res.data
+          : [];
         if (active) setSimilar(list.map(normalizeJob));
       } catch {
         if (active) setSimilar([]);
@@ -209,11 +285,19 @@ export default function JobDetail() {
         if (active) setLoadingSimilar(false);
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [job?.category, job?.location, job?.id]);
 
-  const mustHaveSkills = useMemo(() => parseList(job?.mustHaveSkills), [job?.mustHaveSkills]);
-  const niceToHaveSkills = useMemo(() => parseList(job?.niceToHaveSkills), [job?.niceToHaveSkills]);
+  const mustHaveSkills = useMemo(
+    () => parseList(job?.mustHaveSkills),
+    [job?.mustHaveSkills]
+  );
+  const niceToHaveSkills = useMemo(
+    () => parseList(job?.niceToHaveSkills),
+    [job?.niceToHaveSkills]
+  );
   const fallbackSkills = useMemo(() => parseList(job?.skills), [job?.skills]);
 
   const innerFrameCls =
@@ -230,7 +314,8 @@ export default function JobDetail() {
     if (!token) return navigate('/login');
 
     if (userType && userType !== 'candidate' && userType !== 'admin') {
-      toast.info('Chỉ ứng viên mới được nộp đơn'); return;
+      toast.info('Chỉ ứng viên mới được nộp đơn');
+      return;
     }
     if (applied) return;
 
@@ -242,7 +327,8 @@ export default function JobDetail() {
       try {
         const pr = await userService.getProfile();
         const p = pr?.data?.data || pr?.data || {};
-        if (p?.cvUrl) cvFromProfile = { cvUrl: p.cvUrl, cvName: p.cvName || 'CV.pdf' };
+        if (p?.cvUrl)
+          cvFromProfile = { cvUrl: p.cvUrl, cvName: p.cvName || 'CV.pdf' };
         if (!candidateId && p?.id) candidateId = p.id;
       } catch {}
 
@@ -251,33 +337,60 @@ export default function JobDetail() {
         const res = await cvService.getAllCVs();
         let items = res?.data?.data || res?.data || [];
         if (candidateId) {
-          items = items.filter(cv =>
-            String(cv.candidateId || cv.ownerId || cv.userId || '') === String(candidateId)
+          items = items.filter(
+            (cv) =>
+              String(cv.candidateId || cv.ownerId || cv.userId || '') ===
+              String(candidateId)
           );
         }
         if (items?.length) {
-          items.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+          items.sort(
+            (a, b) =>
+              new Date(b.updatedAt || b.createdAt || 0) -
+              new Date(a.updatedAt || a.createdAt || 0)
+          );
           const chosen = items[0];
-          cvFromService = { cvId: chosen?.id, cvUrl: chosen?.url, cvName: chosen?.name || chosen?.fileName };
+          cvFromService = {
+            cvId: chosen?.id,
+            cvUrl: chosen?.url,
+            cvName: chosen?.name || chosen?.fileName,
+          };
         }
       } catch {}
 
       const candidates = [];
-      if (cvFromProfile?.cvUrl) candidates.push({ cvUrl: cvFromProfile.cvUrl, cvName: cvFromProfile.cvName });
+      if (cvFromProfile?.cvUrl)
+        candidates.push({
+          cvUrl: cvFromProfile.cvUrl,
+          cvName: cvFromProfile.cvName,
+        });
       if (cvFromService?.cvId) candidates.push({ cvId: cvFromService.cvId });
-      if (cvFromService?.cvUrl) candidates.push({ cvUrl: cvFromService.cvUrl, cvName: cvFromService.cvName });
+      if (cvFromService?.cvUrl)
+        candidates.push({
+          cvUrl: cvFromService.cvUrl,
+          cvName: cvFromService.cvName,
+        });
       if (candidateId) candidates.push({ candidateId });
       candidates.push({});
 
-      let success = false; let lastErr = null;
+      let success = false;
+      let lastErr = null;
       for (const body of candidates) {
-        try { await jobService.applyJob(id, body); success = true; break; }
-        catch (e) { lastErr = e; }
+        try {
+          await jobService.applyJob(id, body);
+          success = true;
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
       }
       if (!success) {
-        const msg = lastErr?.response?.data?.message || 'Nộp ứng tuyển thất bại';
-        if (/already/i.test(String(msg))) { setApplied(true); toast.info('Bạn đã nộp đơn cho công việc này trước đó'); }
-        else toast.error(msg);
+        const msg =
+          lastErr?.response?.data?.message || 'Nộp ứng tuyển thất bại';
+        if (/already/i.test(String(msg))) {
+          setApplied(true);
+          toast.info('Bạn đã nộp đơn cho công việc này trước đó');
+        } else toast.error(msg);
         return;
       }
       setApplied(true);
@@ -307,27 +420,72 @@ export default function JobDetail() {
         toast.info('Đã bỏ lưu');
       }
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Không thực hiện được, vui lòng thử lại');
+      toast.error(
+        err?.response?.data?.message ||
+          'Không thực hiện được, vui lòng thử lại'
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="min-h-[50vh] flex items-center justify-center text-slate-600">Đang tải...</div>;
-  if (error) return <div className="min-h-[50vh] flex items-center justify-center text-red-600">{error}</div>;
+  if (loading)
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center text-slate-600">
+        Đang tải...
+      </div>
+    );
+  if (error)
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center text-red-600">
+        {error}
+      </div>
+    );
   if (!job) return null;
 
-  const postedAt = job?.createdAt || job?.publishedAt || job?.postedAt || job?.created_at || job?.createdOn || null;
-  const deadlineAt = job?.deadline || job?.expireDate || job?.expiresAt || job?.closingDate || job?.deadlineAt || job?.endDate || null;
+  // Ngày đăng / hạn nộp / hết hạn?
+  const postedAt =
+    job?.createdAt ||
+    job?.publishedAt ||
+    job?.postedAt ||
+    job?.created_at ||
+    job?.createdOn ||
+    null;
+  const deadlineAt =
+    job?.deadline ||
+    job?.expireDate ||
+    job?.expiresAt ||
+    job?.closingDate ||
+    job?.deadlineAt ||
+    job?.endDate ||
+    null;
   const isExpired = deadlineAt ? new Date(deadlineAt) < new Date() : false;
+
+  // Số lượng cần tuyển & job đã full chưa?
+  const rawQuantity =
+    job?.quantity ||
+    job?.numberOfPositions ||
+    job?.hiringQuantity ||
+    job?.vacancies ||
+    job?.headcount ||
+    job?.slots ||
+    0;
+  const quantity = Number(rawQuantity) || 0;
+  const isFull = quantity > 0 && acceptedCount >= quantity;
 
   const companyInfo = {
     name: job?.employer?.company || job?.company || '',
-    address: job?.workAddress || job?.employer?.companyAddress || job?.contactAddress || '',
+    address:
+      job?.workAddress ||
+      job?.employer?.companyAddress ||
+      job?.contactAddress ||
+      '',
     phone: job?.employer?.phone || job?.contactPhone || '',
     email: job?.employer?.email || job?.contactEmail || '',
     website: job?.employer?.companyWebsite || '',
   };
+
+  const primaryDisabled = applied || isExpired || isFull;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -346,14 +504,21 @@ export default function JobDetail() {
                     loading="lazy"
                     referrerPolicy="no-referrer"
                     crossOrigin="anonymous"
-                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_LOGO; }}
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = FALLBACK_LOGO;
+                    }}
                   />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-col items-center text-center">
-                    <h1 className="text-[22px] sm:text-2xl font-semibold text-slate-800 leading-tight">{job.title}</h1>
-                    <div className="mt-0.5 text-[15px] text-slate-600 font-medium">{job.company}</div>
+                    <h1 className="text-[22px] sm:text-2xl font-semibold text-slate-800 leading-tight">
+                      {job.title}
+                    </h1>
+                    <div className="mt-0.5 text-[15px] text-slate-600 font-medium">
+                      {job.company}
+                    </div>
                   </div>
 
                   <div className="mt-3 text-[13px] text-slate-600">
@@ -370,13 +535,21 @@ export default function JobDetail() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5">
                         <CalendarDays className="w-4 h-4 text-slate-500" />
-                        <span>Ngày đăng: {postedAt ? formatDate(postedAt) : '-'}</span>
+                        <span>
+                          Ngày đăng: {postedAt ? formatDate(postedAt) : '-'}
+                        </span>
                       </span>
                       {deadlineAt && (
                         <>
                           <span className="text-slate-400">-</span>
-                          <span className={`inline-flex items-center gap-1.5 ${isExpired ? 'text-rose-600 font-medium' : ''}`}>
-                            {!isExpired && <CalendarDays className="w-4 h-4 text-slate-500" />}
+                          <span
+                            className={`inline-flex items-center gap-1.5 ${
+                              isExpired ? 'text-rose-600 font-medium' : ''
+                            }`}
+                          >
+                            {!isExpired && (
+                              <CalendarDays className="w-4 h-4 text-slate-500" />
+                            )}
                             <span>Hạn nộp: {formatDate(deadlineAt)}</span>
                           </span>
                           {isExpired && (
@@ -393,29 +566,60 @@ export default function JobDetail() {
                   <div className="mt-4 flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyQuick(); }}
-                      disabled={applying || applied}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        applyQuick();
+                      }}
+                      disabled={primaryDisabled || applying}
                       className={`px-4 py-2 rounded-xl text-white font-medium shadow-sm ${
-                        applied ? 'bg-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:opacity-95'
+                        primaryDisabled
+                          ? 'bg-slate-400 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:opacity-95'
                       } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 disabled:opacity-70`}
                     >
-                      {applied ? 'Đã nộp đơn' : applying ? 'Đang nộp...' : 'Nộp đơn ngay'}
+                      {applied
+                        ? 'Đã nộp đơn'
+                        : isExpired
+                        ? 'Hết hạn'
+                        : isFull
+                        ? 'Đã đủ số lượng'
+                        : applying
+                        ? 'Đang nộp...'
+                        : 'Nộp đơn ngay'}
                     </button>
 
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSave(); }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleSave();
+                      }}
                       disabled={saving}
                       className={`px-4 py-2 rounded-xl border ${
-                        isSaved ? 'border-fuchsia-200 text-fuchsia-600 bg-fuchsia-50/30' : 'border-gray-200 text-slate-700 hover:bg-slate-50'
+                        isSaved
+                          ? 'border-fuchsia-200 text-fuchsia-600 bg-fuchsia-50/30'
+                          : 'border-gray-200 text-slate-700 hover:bg-slate-50'
                       } disabled:opacity-60`}
                     >
                       <span className="inline-flex items-center gap-1">
-                        <Heart className="w-4 h-4" fill={isSaved ? 'currentColor' : 'none'} />
+                        <Heart
+                          className="w-4 h-4"
+                          fill={isSaved ? 'currentColor' : 'none'}
+                        />
                         {saving ? '...' : isSaved ? 'Đã lưu' : 'Lưu tin'}
                       </span>
                     </button>
                   </div>
+
+                  {/* Nếu có quantity -> hiển thị X/Y */}
+                  {quantity > 0 && (
+                    <div className="mt-2 text-xs text-slate-600">
+                      Đã nhận: <span className="font-semibold">{acceptedCount}</span> /{' '}
+                      <span className="font-semibold">{quantity}</span> vị trí
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -424,13 +628,17 @@ export default function JobDetail() {
           {/* Tabs card */}
           <div className="rounded-2xl bg-white p-2 shadow-[0_6px_18px_rgba(17,12,46,0.06)]">
             <div className={`${innerFrameCls}`}>
-              {/* Tab bar - ĐÃ CĂN GIỮA (Desktop) & TRÁI (Mobile) + ẨN THANH CUỘN */}
+              {/* Tab bar */}
               <div className="flex items-center justify-start md:justify-center gap-2 px-4 pt-3 border-b border-gray-100 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                 {[
                   { key: 'desc', label: 'Mô tả', icon: FileText },
                   { key: 'detail', label: 'Chi tiết công việc', icon: Info },
                   { key: 'skills', label: 'Kỹ năng yêu cầu', icon: ListChecks },
-                  { key: 'company', label: 'Thông tin công ty & Liên hệ', icon: Building },
+                  {
+                    key: 'company',
+                    label: 'Thông tin công ty & Liên hệ',
+                    icon: Building,
+                  },
                 ].map(({ key, label, icon: Icon }) => {
                   const active = tab === key;
                   return (
@@ -439,7 +647,9 @@ export default function JobDetail() {
                       key={key}
                       onClick={() => setTab(key)}
                       className={`relative flex-none px-3 py-2 text-sm rounded-t-md transition-colors whitespace-nowrap ${
-                        active ? 'text-violet-700 font-medium' : 'text-slate-600 hover:text-slate-800'
+                        active
+                          ? 'text-violet-700 font-medium'
+                          : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
                       <span className="inline-flex items-center gap-2">
@@ -464,7 +674,9 @@ export default function JobDetail() {
                       <section>
                         <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                           <FileText className="w-4 h-4 text-slate-500" />
-                          <h3 className="text-[17px] font-medium text-slate-800">Mô tả chi tiết (JD)</h3>
+                          <h3 className="text-[17px] font-medium text-slate-800">
+                            Mô tả chi tiết (JD)
+                          </h3>
                         </div>
                         <div className="mt-3" style={softPanelStyle}>
                           <div className="p-4 text-[15px] text-slate-700 whitespace-pre-line">
@@ -478,7 +690,9 @@ export default function JobDetail() {
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <FileText className="w-4 h-4 text-slate-500" />
-                        <h3 className="text-[17px] font-medium text-slate-800">Mô tả công việc</h3>
+                        <h3 className="text-[17px] font-medium text-slate-800">
+                          Mô tả công việc
+                        </h3>
                       </div>
                       <div className="mt-3" style={softPanelStyle}>
                         <div className="p-4 text-[15px] text-slate-700 whitespace-pre-line">
@@ -491,33 +705,74 @@ export default function JobDetail() {
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <Info className="w-4 h-4 text-slate-500" />
-                        <h3 className="text-[17px] font-medium text-slate-800">Thông tin chi tiết</h3>
+                        <h3 className="text-[17px] font-medium text-slate-800">
+                          Thông tin chi tiết
+                        </h3>
                       </div>
                       <div className="mt-3" style={softPanelStyle}>
                         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-12 text-[14px]">
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Mã công việc:</span>
-                            <span className="text-slate-800 font-medium">JOB-{String(job.id || '').slice(0, 8).toUpperCase()}</span>
+                            <span className="text-slate-600 font-medium">
+                              Mã công việc:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              JOB-
+                              {String(job.id || '')
+                                .slice(0, 8)
+                                .toUpperCase()}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Chức danh:</span>
-                            <span className="text-slate-800 font-medium">{job.title}</span>
+                            <span className="text-slate-600 font-medium">
+                              Chức danh:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              {job.title}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Ngành nghề:</span>
-                            <span className="text-slate-800 font-medium">{job.category || '-'}</span>
+                            <span className="text-slate-600 font-medium">
+                              Ngành nghề:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              {job.category || '-'}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Địa điểm:</span>
-                            <span className="text-slate-800 font-medium">{job.location || '-'}</span>
+                            <span className="text-slate-600 font-medium">
+                              Địa điểm:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              {job.location || '-'}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Loại công việc:</span>
-                            <span className="text-slate-800 font-medium">{typeViMap[job.type] || job.type || '-'}</span>
+                            <span className="text-slate-600 font-medium">
+                              Loại công việc:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              {typeViMap[job.type] || job.type || '-'}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-600 font-medium">Mức lương:</span>
-                            <span className="font-semibold text-fuchsia-600">{job.salary || job.salaryBand || 'Thoả thuận'}</span>
+                            <span className="text-slate-600 font-medium">
+                              Mức lương:
+                            </span>
+                            <span className="font-semibold text-fuchsia-600">
+                              {job.salary || job.salaryBand || 'Thoả thuận'}
+                            </span>
+                          </div>
+
+                          {/* Số lượng cần tuyển */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600 font-medium">
+                              Số lượng cần tuyển:
+                            </span>
+                            <span className="text-slate-800 font-medium">
+                              {quantity > 0
+                                ? `${acceptedCount}/${quantity} vị trí`
+                                : 'Chưa xác định'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -527,7 +782,9 @@ export default function JobDetail() {
                     <section>
                       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                         <ListChecks className="w-4 h-4 text-slate-500" />
-                        <h3 className="text-[17px] font-medium text-slate-800">Yêu cầu công việc</h3>
+                        <h3 className="text-[17px] font-medium text-slate-800">
+                          Yêu cầu công việc
+                        </h3>
                       </div>
                       <div className="mt-3" style={softPanelStyle}>
                         <div className="p-4 text-[15px] text-slate-700 whitespace-pre-line">
@@ -543,33 +800,73 @@ export default function JobDetail() {
                   <>
                     <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                       <Info className="w-4 h-4 text-slate-500" />
-                      <h3 className="text-[17px] font-medium text-slate-800">Thông tin chi tiết</h3>
+                      <h3 className="text-[17px] font-medium text-slate-800">
+                        Thông tin chi tiết
+                      </h3>
                     </div>
                     <div style={softPanelStyle} className="p-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-12 text-[14px]">
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Mã công việc:</span>
-                          <span className="text-slate-800 font-medium">JOB-{String(job.id || '').slice(0, 8).toUpperCase()}</span>
+                          <span className="text-slate-600 font-medium">
+                            Mã công việc:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            JOB-
+                            {String(job.id || '')
+                              .slice(0, 8)
+                              .toUpperCase()}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Chức danh:</span>
-                          <span className="text-slate-800 font-medium">{job.title}</span>
+                          <span className="text-slate-600 font-medium">
+                            Chức danh:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            {job.title}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Ngành nghề:</span>
-                          <span className="text-slate-800 font-medium">{job.category || '-'}</span>
+                          <span className="text-slate-600 font-medium">
+                            Ngành nghề:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            {job.category || '-'}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Địa điểm:</span>
-                          <span className="text-slate-800 font-medium">{job.location || '-'}</span>
+                          <span className="text-slate-600 font-medium">
+                            Địa điểm:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            {job.location || '-'}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Loại công việc:</span>
-                          <span className="text-slate-800 font-medium">{typeViMap[job.type] || job.type || '-'}</span>
+                          <span className="text-slate-600 font-medium">
+                            Loại công việc:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            {typeViMap[job.type] || job.type || '-'}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600 font-medium">Mức lương:</span>
-                          <span className="font-semibold text-fuchsia-600">{job.salary || job.salaryBand || 'Thoả thuận'}</span>
+                          <span className="text-slate-600 font-medium">
+                            Mức lương:
+                          </span>
+                          <span className="font-semibold text-fuchsia-600">
+                            {job.salary || job.salaryBand || 'Thoả thuận'}
+                          </span>
+                        </div>
+                        {/* Số lượng cần tuyển (tab chi tiết) */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 font-medium">
+                            Số lượng cần tuyển:
+                          </span>
+                          <span className="text-slate-800 font-medium">
+                            {quantity > 0
+                              ? `${acceptedCount}/${quantity} vị trí`
+                              : 'Chưa xác định'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -581,28 +878,42 @@ export default function JobDetail() {
                   <div className="space-y-4">
                     {mustHaveSkills.length > 0 ? (
                       <div style={softPanelStyle} className="p-4">
-                        <div className="text-sm font-medium text-red-700 mb-2">Kỹ năng bắt buộc</div>
+                        <div className="text-sm font-medium text-red-700 mb-2">
+                          Kỹ năng bắt buộc
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           {mustHaveSkills.map((s, i) => (
-                            <span key={i} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full shadow-inner">
+                            <span
+                              key={i}
+                              className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full shadow-inner"
+                            >
                               {s}
                             </span>
                           ))}
                         </div>
                         <p className="text-xs text-gray-500 mt-3">
-                          💡 <strong>Lưu ý:</strong> Tất cả kỹ năng trên đều là bắt buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm khi AI chấm.
+                          💡 <strong>Lưu ý:</strong> Tất cả kỹ năng trên đều
+                          là bắt buộc. Ứng viên thiếu kỹ năng sẽ bị trừ điểm
+                          khi AI chấm.
                         </p>
                       </div>
                     ) : (
                       <div style={softPanelStyle} className="p-4">
                         {fallbackSkills.length === 0 ? (
-                          <div className="text-sm text-slate-500">Chưa có kỹ năng yêu cầu.</div>
+                          <div className="text-sm text-slate-500">
+                            Chưa có kỹ năng yêu cầu.
+                          </div>
                         ) : (
                           <>
-                            <div className="text-sm font-medium text-slate-700 mb-2">Kỹ năng yêu cầu</div>
+                            <div className="text-sm font-medium text-slate-700 mb-2">
+                              Kỹ năng yêu cầu
+                            </div>
                             <div className="flex flex-wrap gap-2">
                               {fallbackSkills.map((s, i) => (
-                                <span key={i} className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-full shadow-inner">
+                                <span
+                                  key={i}
+                                  className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-full shadow-inner"
+                                >
                                   {s}
                                 </span>
                               ))}
@@ -619,25 +930,37 @@ export default function JobDetail() {
                   <section>
                     <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                       <Building className="w-4 h-4 text-slate-500" />
-                      <h3 className="text-[17px] font-medium text-slate-800">Thông tin công ty & Liên hệ</h3>
+                      <h3 className="text-[17px] font-medium text-slate-800">
+                        Thông tin công ty & Liên hệ
+                      </h3>
                     </div>
                     <div className="mt-3" style={softPanelStyle}>
                       <div className="p-6 space-y-5">
                         {/* Company Name */}
                         {companyInfo.name && (
                           <div className="flex flex-col gap-1">
-                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Công ty:</span>
-                            <span className="text-[16px] font-medium text-slate-900">{companyInfo.name}</span>
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Công ty:
+                            </span>
+                            <span className="text-[16px] font-medium text-slate-900">
+                              {companyInfo.name}
+                            </span>
                           </div>
                         )}
 
                         {/* Address */}
                         {companyInfo.address && (
                           <div className="flex flex-col gap-1">
-                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Địa chỉ:</span>
-                            <div className="text-[15px] text-slate-900 leading-relaxed">{companyInfo.address}</div>
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Địa chỉ:
+                            </span>
+                            <div className="text-[15px] text-slate-900 leading-relaxed">
+                              {companyInfo.address}
+                            </div>
                             <a
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(companyInfo.address)}`}
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                companyInfo.address
+                              )}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm font-medium mt-1"
@@ -651,8 +974,12 @@ export default function JobDetail() {
                         {/* Location */}
                         {job?.location && (
                           <div className="flex flex-col gap-1">
-                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Khu vực:</span>
-                            <span className="text-[15px] text-slate-900">{job.location}</span>
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Khu vực:
+                            </span>
+                            <span className="text-[15px] text-slate-900">
+                              {job.location}
+                            </span>
                           </div>
                         )}
 
@@ -660,9 +987,14 @@ export default function JobDetail() {
                           {/* Phone */}
                           {companyInfo.phone && (
                             <div className="flex flex-col gap-1">
-                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Điện thoại:</span>
+                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">
+                                Điện thoại:
+                              </span>
                               <a
-                                href={`tel:${(companyInfo.phone || '').replace(/\s/g, '')}`}
+                                href={`tel:${(companyInfo.phone || '').replace(
+                                  /\s/g,
+                                  ''
+                                )}`}
                                 className="flex items-center gap-2 text-[15px] text-blue-600 hover:text-blue-700 font-medium"
                               >
                                 <Phone className="w-4 h-4" />
@@ -674,7 +1006,9 @@ export default function JobDetail() {
                           {/* Email */}
                           {companyInfo.email && (
                             <div className="flex flex-col gap-1">
-                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">Email:</span>
+                              <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold">
+                                Email:
+                              </span>
                               <a
                                 href={`mailto:${companyInfo.email}`}
                                 className="flex items-center gap-2 text-[15px] text-blue-600 hover:text-blue-700 font-medium break-all"
@@ -689,7 +1023,9 @@ export default function JobDetail() {
                         {/* Website */}
                         {companyInfo.website && (
                           <div className="flex flex-col gap-1 pt-2 border-t border-slate-100">
-                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold mt-2">Website:</span>
+                            <span className="text-[13px] uppercase tracking-wide text-slate-500 font-semibold mt-2">
+                              Website:
+                            </span>
                             <a
                               href={companyInfo.website}
                               target="_blank"
@@ -733,7 +1069,13 @@ export default function JobDetail() {
                 <ul className="space-y-3">
                   {similar.map((s) => {
                     const sLogo =
-                      s.companyLogo || s.logoUrl || s.logo || s.company_logo || s.company?.logo || s.employer?.logoUrl || '';
+                      s.companyLogo ||
+                      s.logoUrl ||
+                      s.logo ||
+                      s.company_logo ||
+                      s.company?.logo ||
+                      s.employer?.logoUrl ||
+                      '';
                     return (
                       <li key={s.id}>
                         <button
@@ -749,15 +1091,24 @@ export default function JobDetail() {
                               loading="lazy"
                               referrerPolicy="no-referrer"
                               crossOrigin="anonymous"
-                              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_LOGO; }}
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src = FALLBACK_LOGO;
+                              }}
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">{s.title}</p>
-                            <p className="text-xs text-slate-500 truncate">{s.company}</p>
+                            <p className="text-sm font-medium text-slate-800 truncate">
+                              {s.title}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {s.company}
+                            </p>
                             <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
                               <span>{s.location}</span>
-                              <span className="text-fuchsia-600 font-semibold">{s.salary}</span>
+                              <span className="text-fuchsia-600 font-semibold">
+                                {s.salary}
+                              </span>
                             </div>
                           </div>
                         </button>

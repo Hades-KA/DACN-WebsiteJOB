@@ -28,7 +28,11 @@ const nav = [
     icon: FileIcon,
     children: [
       { label: 'Quản lý tin tuyển dụng', to: '/employer/jobs', icon: BriefcaseIcon },
-      { label: 'Quản lý CV', to: '/employer/cvs', icon: UploadIcon },
+      
+      // --- SỬA: Comment dòng này lại để NTD không thấy kho CV chung ---
+      // { label: 'Quản lý CV', to: '/employer/cvs', icon: UploadIcon },
+      
+      // --- GIỮ NGUYÊN: Để làm nơi quản lý lịch phỏng vấn ---
       { label: 'Quản lý ứng viên', to: '/employer/candidates', icon: UsersIcon },
     ],
   },
@@ -115,9 +119,10 @@ function EmployerLayoutInner() {
   }, []); // eslint-disable-line
 
   useEffect(() => {
+    // Cập nhật danh sách active path (bỏ cvs ra cho sạch code, để lại cũng ko sao)
     const recruitmentPaths = [
       '/employer/jobs',
-      '/employer/cvs',
+      // '/employer/cvs', // Đã bỏ
       '/employer/candidates',
     ];
     if (recruitmentPaths.some((p) => location.pathname.startsWith(p))) {
@@ -172,7 +177,7 @@ function EmployerLayoutInner() {
 
             const recruitmentPaths = [
               '/employer/jobs',
-              '/employer/cvs',
+              '/employer/cvs', // Vẫn giữ logic check path để lỡ user gõ url trực tiếp thì menu vẫn sáng
               '/employer/candidates',
             ];
             const parentActive = recruitmentPaths.some((p) =>

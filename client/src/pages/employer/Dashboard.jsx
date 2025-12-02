@@ -41,20 +41,39 @@ const THEME = {
 };
 const COLORS = [THEME.primary, THEME.success, THEME.warn];
 
+/**
+ * Trạng thái ứng tuyển – NHẤN MẠNH AI LÀ THẰNG LÀM VIỆC
+ * (có cả rejected, để vẽ luôn trên biểu đồ)
+ */
 const STATUS_LABELS = {
-  pending: 'Chờ xử lý',
-  reviewing: 'Đang xem xét',
-  shortlisted: 'Sơ tuyển',
-  interviewed: 'Phỏng vấn',
+  // Đơn vừa nộp, đã gửi cho AI phân tích
+  pending: 'Đã nộp đơn',
+
+  // Giai đoạn AI đang xử lý (nếu có dùng status này)
+  reviewing: 'AI phân tích CV',
+
+  // Ứng viên được AI đánh giá cao và NTD đã bấm "Mời phỏng vấn"
+  shortlisted: 'AI đề xuất',
+
+  // Đã có lịch phỏng vấn cụ thể
+  interviewed: 'Đã có lịch phỏng vấn',
+
+  // Đã nhận
   accepted: 'Đã nhận',
+
+  // Bị từ chối
+  rejected: 'Từ chối',
 };
+
+// Thứ tự cột trong biểu đồ trạng thái ứng tuyển (GIỜ CÓ CẢ rejected)
 const STATUS_ORDER = [
   'pending',
   'reviewing',
   'shortlisted',
   'interviewed',
   'accepted',
-]; // ẩn rejected
+  'rejected',
+];
 
 // Helpers
 const toNum = (v) => Number(v || 0);
@@ -181,7 +200,7 @@ export default function EmployerDashboard() {
       // Quy ước:
       // - Đang hiển thị: isActive && chưa hết hạn
       // - Hết hạn: deadline < hiện tại (kể cả bạn tự đóng hay chưa)
-      // - Chờ duyệt: !isActive && chưa hết hạn (hiện tại gần như không dùng)
+      // - Chờ duyệt: !isActive && chưa hết hạn
       if (isExpired) {
         expired++;
       } else if (isActive) {
@@ -198,7 +217,7 @@ export default function EmployerDashboard() {
     ];
   }, [jobs, nowTs]);
 
-  // Bar: trạng thái ứng tuyển (ẩn rejected)
+  // Bar: trạng thái ứng tuyển (CÓ cả rejected, label theo AI)
   const barData = useMemo(() => {
     const map = Object.fromEntries(STATUS_ORDER.map((k) => [k, 0]));
     apps.forEach((a) => {
@@ -408,7 +427,7 @@ export default function EmployerDashboard() {
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={140} />
+                <YAxis type="category" dataKey="name" width={180} />
                 <Tooltip formatter={(v) => [v, 'Số lượng']} />
                 <Bar dataKey="value" fill="#8B5CF6" barSize={18} />
               </BarChart>
@@ -425,8 +444,7 @@ export default function EmployerDashboard() {
                 const deadlineTs = j.deadline
                   ? new Date(j.deadline).getTime()
                   : null;
-                const isExpired =
-                  deadlineTs != null && deadlineTs < nowTs;
+                const isExpired = deadlineTs != null && deadlineTs < nowTs;
                 const isActive = !!j.isActive;
 
                 let label = 'Đã đóng';
