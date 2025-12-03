@@ -3,7 +3,7 @@
 
 const express = require('express');
 const { body, validationResult, param } = require('express-validator');
-const { Application, Job, User, CV } = require('../models');
+const { Application, Job, User, CV, Score } = require('../models');
 const { auth } = require('../middleware/auth');
 const { getLatestScore, rescoreApplication } = require('../services/scoreService');
 
@@ -79,16 +79,25 @@ const buildCvObj = (req, raw) => {
   return null;
 };
 
+// 🔥 Nâng cấp để parse được cả JSON nháy đơn và double encode
 function parseListDeep(raw) {
   if (raw == null) return [];
   let v = raw;
+
   for (let i = 0; i < 2; i++) {
     if (typeof v === 'string') {
       try {
         v = JSON.parse(v);
         continue;
       } catch {
-        break;
+        // Thử sửa nháy đơn thành nháy kép rồi parse lại
+        try {
+          const fixed = v.replace(/'/g, '"');
+          v = JSON.parse(fixed);
+          continue;
+        } catch {
+          break;
+        }
       }
     }
     break;
@@ -228,7 +237,60 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/applications/:id
+/* ===============================================================
+   GET /api/applications/:id/score  (🔥 route FE đang gọi)
+   =============================================================== */
+router.get('/:id/score', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const userType = req.user.userType;
+
+    // Kiểm tra quyền giống GET /:id
+    let whereClause = { id };
+    const includeClause = [
+      {
+        model: Job,
+        as: 'job',
+        attributes: ['id', 'employerId', 'title', 'company']
+      }
+    ];
+
+    if (userType === 'candidate') whereClause.candidateId = userId;
+    if (userType === 'employer') includeClause[0].where = { employerId: userId };
+
+    const app = await Application.findOne({ where: whereClause, include: includeClause });
+    if (!app) return res.status(404).json({ message: 'Application not found' });
+
+    // Lấy điểm mới nhất theo generatedAt
+    const score = await Score.findOne({
+      where: { applicationId: id },
+      order: [['generatedAt', 'DESC']]
+    });
+
+    let scoreJson = null;
+    if (score) {
+      const s = score.toJSON();
+      scoreJson = {
+        ...s,
+        matchedSkills: parseListDeep(s.matchedSkills),
+        missingSkills: parseListDeep(s.missingSkills),
+        missingMustHave: parseListDeep(s.missingMustHave)
+      };
+    }
+
+    return res.json({
+      message: 'Score retrieved successfully',
+      data: scoreJson,
+      aiMatchScore: app.aiMatchScore != null ? Number(app.aiMatchScore) : null
+    });
+  } catch (error) {
+    console.error('Get application score error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve score' });
+  }
+});
+
+// GET /api/applications/:id  (đặt SAU /:id/score để không bị nuốt route)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -359,7 +421,6 @@ router.put(
         return res.status(403).json({ message: 'Forbidden: not your job application' });
       }
 
-      // Lưu lịch sử + cập nhật trạng thái
       let history = [];
       try {
         history = JSON.parse(application.statusHistory || '[]');
@@ -426,7 +487,7 @@ router.put(
 
         if (toStatus === 'reviewing') {
           title = 'Nhà tuyển dụng đã xem hồ sơ (Từ AI gợi ý)';
-          msg = `Nhà tuyển dụng ${job.company || ''} đã xem .`;
+          msg = `Nhà tuyển dụng ${job.company || ''} đã xem và đang đánh giá hồ sơ của bạn.`;
         } else if (toStatus === 'shortlisted') {
           title = 'Bạn đã vào danh sách shortlist';
           msg = `Hồ sơ của bạn cho vị trí ${job.title || ''} đã được đưa vào danh sách ứng viên tiềm năng.`;
@@ -466,7 +527,6 @@ router.put(
         console.error('[Applications] create notification on status change error:', e.message);
       }
 
-      // Trả về bản ghi sau cập nhật
       const refreshed = await Application.findOne({
         where: { id },
         include: [

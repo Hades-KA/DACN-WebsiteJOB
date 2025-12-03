@@ -13,11 +13,9 @@ const {
 } = require('../controllers/jobController');
 const { auth, requireEmployer } = require('../middleware/auth');
 
-// ⭐ QUAN TRỌNG: Thêm sequelize vào đây để dùng hàm literal (nhưng ta sẽ dùng new Date() cho an toàn)
+// ⭐ Quan trọng: Import Score để dùng trong rescore
 const { Application, Job, CV, User, Score, sequelize } = require('../models');
 const { enqueueScoreApplication } = require('../services/scoreService');
-
-// 👇 service thông báo
 const { createNotification } = require('../services/notificationService');
 
 const router = express.Router();
@@ -168,7 +166,7 @@ router.post(
     body('cvId').optional().isUUID().withMessage('cvId must be a valid UUID'),
     body('coverLetter').optional().trim().isLength({ max: 2000 }),
     body('expectedSalary').optional().isDecimal(),
-    body('availableFrom').optional().isString(), // Chấp nhận chuỗi, không ép kiểu Date vội
+    body('availableFrom').optional().isString(),
   ],
   async (req, res) => {
     try {
@@ -182,14 +180,12 @@ router.post(
       const { cvId, coverLetter, expectedSalary, availableFrom } = req.body;
       const candidateId = req.user?.userId ?? req.user?.id;
 
-      // 1) Kiểm tra job còn active
       const job = await Job.findOne({ where: { id: jobId, isActive: true } });
       if (!job)
         return res
           .status(404)
           .json({ message: 'Job not found or not active' });
 
-      // 2) Ngăn nộp trùng
       const existing = await Application.findOne({
         where: { jobId, candidateId },
       });
@@ -198,7 +194,6 @@ router.post(
           .status(400)
           .json({ message: 'You have already applied for this job' });
 
-      // 3) Lấy metadata CV (nếu chọn)
       let cvMeta = {};
       if (cvId) {
         const cv = await CV.findOne({ where: { id: cvId, candidateId } });
@@ -209,7 +204,6 @@ router.post(
         cvMeta = { cvName: cv.fileName, cvFilePath: cv.filePath };
       }
 
-      // 4) Snapshot hồ sơ ứng viên hiện tại
       const u = await User.findByPk(candidateId, {
         attributes: [
           'id', 'name', 'email', 'phone', 'position', 'location', 'about', 
@@ -232,8 +226,8 @@ router.post(
         cvUrl: u.cvUrl, cvName: u.cvName
       } : {};
 
-      // 5) Tạo application
-      // ⭐ SỬA 1: Thay sequelize.literal('GETDATE()') bằng new Date() để tương thích mọi DB
+      const now = new Date();
+
       const application = await Application.create({
         jobId,
         candidateId,
@@ -244,14 +238,12 @@ router.post(
         status: 'pending',
         candidateSnapshot: JSON.stringify(snapshot),
         ...cvMeta,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: now,
+        updatedAt: now,
       });
 
-      // 6) Tăng bộ đếm ứng tuyển
       await job.increment('applicationsCount').catch(() => {});
 
-      // 6b) TẠO THÔNG BÁO CHO NTD VÀ ỨNG VIÊN
       const io = req.app?.get('io') || null;
       const candidateName = u?.name || 'Ứng viên ẩn danh';
 
@@ -263,7 +255,7 @@ router.post(
         message: `Ứng viên ${candidateName} vừa nộp hồ sơ vào vị trí ${job.title}.`,
         jobId: job.id,
         io,
-        alsoEmail: true, // Đã dùng template đẹp
+        alsoEmail: true,
       });
 
       // Cho Ứng viên
@@ -274,10 +266,9 @@ router.post(
         message: `Hồ sơ của bạn đã được gửi tới ${job.company} cho vị trí ${job.title}.`,
         jobId: job.id,
         io,
-        alsoEmail: true, // ⭐ SỬA 2: Bật email xác nhận cho ứng viên
+        alsoEmail: true,
       });
 
-      // 7) TỰ ĐỘNG CHẤM ĐIỂM AI (BACKGROUND)
       enqueueScoreApplication(application.id);
 
       console.log(
@@ -342,7 +333,6 @@ router.patch(
       const employerId = req.user.userId;
       const { jdText, mustHaveSkills, niceToHaveSkills } = req.body;
 
-      // 1) Kiểm tra quyền sở hữu job
       const job = await Job.findOne({ where: { id: jobId, employerId } });
       if (!job) {
         return res
@@ -350,7 +340,6 @@ router.patch(
           .json({ message: 'Job không tồn tại hoặc bạn không có quyền' });
       }
 
-      // 2) Lưu JD + must/nice-have (JSON) + tăng jdVersion
       const mustJson = JSON.stringify(mustHaveSkills || []);
       const niceJson = JSON.stringify(niceToHaveSkills || []);
       const newVersion = (job.jdVersion || 1) + 1;
@@ -365,7 +354,6 @@ router.patch(
         { silent: true },
       );
 
-      // 3) Re-score tất cả applications của job này (background)
       const apps = await Application.findAll({
         where: { jobId },
         attributes: ['id'],
@@ -375,9 +363,7 @@ router.patch(
         `[JD Update] Re-scoring ${apps.length} applications for job ${jobId}...`,
       );
 
-      apps.forEach((a) => {
-        enqueueScoreApplication(a.id);
-      });
+      apps.forEach((a) => enqueueScoreApplication(a.id));
 
       return res.json({
         message: `JD updated successfully. Re-scoring ${apps.length} applications in background...`,
@@ -405,7 +391,6 @@ router.post(
         `[Rescore All] jobId=${jobId}, employerId=${employerId}, onlyMissing=${onlyMissing}`,
       );
 
-      // Kiểm tra quyền
       const job = await Job.findOne({ where: { id: jobId, employerId } });
       if (!job) {
         console.log('[Rescore All] Job not found or no permission');
@@ -414,7 +399,6 @@ router.post(
           .json({ message: 'Job not found or no permission' });
       }
 
-      // Lấy tất cả applications
       const apps = await Application.findAll({
         where: { jobId },
         attributes: ['id'],
@@ -433,10 +417,6 @@ router.post(
       let skipped = 0;
 
       const hasScoreModel = !!Score;
-      const orderField =
-        hasScoreModel && Score.rawAttributes?.generatedAt
-          ? 'generatedAt'
-          : 'createdAt';
       const cutoff = staleMinutes
         ? new Date(Date.now() - staleMinutes * 60 * 1000)
         : null;
@@ -446,17 +426,18 @@ router.post(
 
         if (onlyMissing && hasScoreModel) {
           try {
+            // 🔥 FIX: chỉ dùng generatedAt vì DB chỉ có cột này
             const last = await Score.findOne({
               where: { applicationId: a.id },
-              order: [[orderField, 'DESC']],
-              attributes: ['status', 'generatedAt', 'createdAt'],
+              order: [['generatedAt', 'DESC']],
+              attributes: ['status', 'generatedAt'],
             });
 
             if (last && last.status === 'success') {
               if (!cutoff) {
                 should = false;
               } else {
-                const t = last.generatedAt || last.createdAt;
+                const t = last.generatedAt;
                 should = !(t && new Date(t) > cutoff);
               }
             }
