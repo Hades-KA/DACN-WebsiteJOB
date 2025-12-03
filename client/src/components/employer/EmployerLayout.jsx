@@ -1,3 +1,4 @@
+// src/components/employer/EmployerLayout.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -20,6 +21,9 @@ import {
 } from '../../contexts/EmployerChatContext';
 import EmployerChatFloating from './EmployerChatFloating';
 
+// 👇 THÊM: chuông thông báo dùng chung
+import NotificationBell from '../NotificationBell';
+
 const nav = [
   { label: 'Tổng quan', to: '/employer/dashboard', icon: HomeIcon },
   { label: 'Quản lý công ty', to: '/employer/company', icon: LayersIcon },
@@ -28,11 +32,7 @@ const nav = [
     icon: FileIcon,
     children: [
       { label: 'Quản lý tin tuyển dụng', to: '/employer/jobs', icon: BriefcaseIcon },
-      
-      // --- SỬA: Comment dòng này lại để NTD không thấy kho CV chung ---
       // { label: 'Quản lý CV', to: '/employer/cvs', icon: UploadIcon },
-      
-      // --- GIỮ NGUYÊN: Để làm nơi quản lý lịch phỏng vấn ---
       { label: 'Quản lý ứng viên', to: '/employer/candidates', icon: UsersIcon },
     ],
   },
@@ -78,8 +78,7 @@ function EmployerLayoutInner() {
 
   useEffect(() => {
     const close = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target))
-        setOpenMenu(false);
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(false);
     };
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
@@ -116,13 +115,13 @@ function EmployerLayoutInner() {
       if (cached) setMe(cached);
     };
     if (!me?.email) resolveUser();
-  }, []); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    // Cập nhật danh sách active path (bỏ cvs ra cho sạch code, để lại cũng ko sao)
     const recruitmentPaths = [
       '/employer/jobs',
-      // '/employer/cvs', // Đã bỏ
+      '/employer/cvs',
       '/employer/candidates',
     ];
     if (recruitmentPaths.some((p) => location.pathname.startsWith(p))) {
@@ -162,7 +161,7 @@ function EmployerLayoutInner() {
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `group flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/10 transition ${
+                    `group flex items-center gap-3 px-3 py-2 rounded-md hover:bg:white/10 transition ${
                       isActive
                         ? 'text-white bg-white/10 border-l-2 border-blue-500'
                         : 'text-gray-300'
@@ -177,11 +176,11 @@ function EmployerLayoutInner() {
 
             const recruitmentPaths = [
               '/employer/jobs',
-              '/employer/cvs', // Vẫn giữ logic check path để lỡ user gõ url trực tiếp thì menu vẫn sáng
+              '/employer/cvs',
               '/employer/candidates',
             ];
             const parentActive = recruitmentPaths.some((p) =>
-              location.pathname.startsWith(p)
+              location.pathname.startsWith(p),
             );
 
             return (
@@ -251,6 +250,9 @@ function EmployerLayoutInner() {
                 <ChatIcon size={18} />
               </button>
 
+              {/* 👇 Chuông thông báo cho NTD (dùng chung với Candidate) */}
+              <NotificationBell />
+
               {/* User menu */}
               <div className="relative" ref={menuRef}>
                 <button
@@ -263,9 +265,7 @@ function EmployerLayoutInner() {
                   title={displayText}
                 >
                   <UserIcon size={18} className="text-gray-200" />
-                  <span className="text-sm text-gray-200">
-                    {displayText}
-                  </span>
+                  <span className="text-sm text-gray-200">{displayText}</span>
                   <ChevronDownIcon size={16} className="text-gray-400" />
                 </button>
                 {openMenu && (

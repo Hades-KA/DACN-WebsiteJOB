@@ -23,15 +23,83 @@ function getContactInfo(job, employer) {
   };
 }
 
-// ----------------------
-// Template: Mời phỏng vấn
-// ----------------------
+/* ============================================================
+   1. TEMPLATE CHUNG: Dùng cho Notification Service
+   (Ứng viên mới, Duyệt tin, Job Alert...)
+   ============================================================ */
+function getNotificationEmailTemplate({ name, title, message, link, linkText }) {
+  return `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f8; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #0056b3; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; }
+      </style>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f8;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f6f8; padding: 20px;">
+        <tr>
+          <td align="center">
+            <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); overflow: hidden;">
+              <!-- Header -->
+              <tr>
+                <td style="background-color: #0056b3; padding: 20px; text-align: center;">
+                  <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px;">
+                    JOB HIRE Thông Báo
+                  </h1>
+                </td>
+              </tr>
+              
+              <!-- Content -->
+              <tr>
+                <td style="padding: 30px;">
+                  <p style="color: #333333; font-size: 16px; margin: 0 0 20px 0;">
+                    Xin chào <strong>${name || 'Bạn'}</strong>,
+                  </p>
+                  
+                  <div style="background-color: #eef2f6; border-left: 4px solid #0056b3; padding: 15px; border-radius: 4px; margin-bottom: 25px;">
+                    <h3 style="color: #0056b3; margin: 0 0 10px 0; font-size: 18px;">${title}</h3>
+                    <p style="color: #555555; font-size: 15px; line-height: 1.5; margin: 0;">
+                      ${message}
+                    </p>
+                  </div>
+
+                  ${link ? `
+                  <div style="text-align: center; margin-top: 30px;">
+                    <a href="${link}" class="btn">${linkText || 'Xem chi tiết'}</a>
+                  </div>
+                  ` : ''}
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #eceff1; padding: 15px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #e0e0e0;">
+                  <p style="margin: 0;">Email này được gửi tự động từ hệ thống JobHire.</p>
+                  <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} JobHire Platform. All rights reserved.</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+}
+
+/* ============================================================
+   2. TEMPLATE: MỜI PHỎNG VẤN
+   ============================================================ */
 function interviewInvitationTemplate({
   candidate,
   job,
   employer,
   interviewTime,
-  interviewMode, // <-- thêm tham số hình thức phỏng vấn
+  interviewMode,
 }) {
   const candidateName = candidate?.name || 'bạn';
   const jobTitle = job?.title || 'vị trí tuyển dụng';
@@ -50,7 +118,6 @@ function interviewInvitationTemplate({
     }
   }
 
-  // Map giá trị mode -> text hiển thị đẹp
   let modeText = 'Sẽ thông báo sau';
   if (typeof interviewMode === 'string') {
     const m = interviewMode.toLowerCase();
@@ -152,10 +219,6 @@ function interviewInvitationTemplate({
                       Vui lòng phản hồi email này hoặc liên hệ HR để <strong>xác nhận lịch phỏng vấn</strong>.
                     </p>
                     
-                    <p style="color: #555555; font-size: 15px; line-height: 1.6; margin: 20px 0 0 0;">
-                      Chúc bạn thành công! 🍀
-                    </p>
-                    
                     <p style="color: #333333; font-size: 15px; margin: 25px 0 0 0;">
                       Trân trọng,<br>
                       <strong>${companyName}</strong>
@@ -201,9 +264,9 @@ ${companyName}
   };
 }
 
-// ----------------------
-// Template: Trúng tuyển
-// ----------------------
+/* ============================================================
+   3. TEMPLATE: TRÚNG TUYỂN
+   ============================================================ */
 function acceptedTemplate({ candidate, job, employer }) {
   const candidateName = candidate?.name || 'bạn';
   const jobTitle = job?.title || 'vị trí tuyển dụng';
@@ -358,9 +421,9 @@ ${companyName}
   };
 }
 
-// ----------------------
-// Template: Từ chối
-// ----------------------
+/* ============================================================
+   4. TEMPLATE: TỪ CHỐI
+   ============================================================ */
 function rejectedTemplate({ candidate, job, employer }) {
   const candidateName = candidate?.name || 'bạn';
   const jobTitle = job?.title || 'vị trí tuyển dụng';
@@ -402,6 +465,7 @@ ${companyName}
 }
 
 module.exports = {
+  getNotificationEmailTemplate,
   interviewInvitationTemplate,
   acceptedTemplate,
   rejectedTemplate,

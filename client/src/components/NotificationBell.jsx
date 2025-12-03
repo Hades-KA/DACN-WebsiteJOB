@@ -1,5 +1,7 @@
 // src/components/NotificationBell.jsx
 import React, { useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
+
 import { Bell, BellRing } from 'lucide-react';
 import { notificationService } from '../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -27,14 +29,44 @@ export default function NotificationBell({ className = '' }) {
   const ref = useRef(null);
   const navigate = useNavigate();
 
+  // Lấy userType để quyết định route "xem tất cả"
+  const rawUser = localStorage.getItem('user');
+  let userType = null;
+  try {
+    userType = rawUser ? JSON.parse(rawUser).userType : null;
+  } catch {
+    userType = null;
+  }
+  const token = localStorage.getItem('token');
+
   const load = async () => {
+    if (!token) {
+      setItems([]);
+      setUnread(0);
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await notificationService.getNotifications({ limit: 10, page: 1 });
+      const res = await notificationService.getNotifications({
+        limit: 10,
+        page: 1,
+      });
       const list = res?.data?.data || res?.data || [];
-      const arr = Array.isArray(list) ? list : [];
+      const arr = Array.isArray(list)
+        ? list.map((n) => ({
+            ...n,
+            // Chuẩn hoá field read từ isRead
+            read:
+              typeof n.read === 'boolean'
+                ? n.read
+                : typeof n.isRead === 'boolean'
+                ? n.isRead
+                : false,
+          }))
+        : [];
       setItems(arr);
-      setUnread(arr.filter(n => !n.read).length);
+      setUnread(arr.filter((n) => !n.read).length);
     } catch {
       setItems([]);
       setUnread(0);
@@ -52,14 +84,37 @@ export default function NotificationBell({ className = '' }) {
       window.removeEventListener('focus', onFocus);
       clearInterval(iv);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const raw = import.meta?.env?.VITE_API_URL || window.location.origin || '';
+    const base = String(raw).replace(/\/$/, '').replace(/\/api$/i, '');
+    const socket = io(base, { auth: { token } });
+
+    const onNew = (n) => {
+      const mapped = {
+        ...n,
+        read: typeof n.read === 'boolean' ? n.read : typeof n.isRead === 'boolean' ? n.isRead : false,
+      };
+      setItems((prev) => [mapped, ...prev].slice(0, 10));
+      setUnread((u) => u + (mapped.read ? 0 : 1));
+    };
+    socket.on('new_notification', onNew);
+    return () => {
+      socket.off('new_notification', onNew);
+      socket.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useOnClickOutside(ref, () => setOpen(false));
 
   const onIconClick = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return navigate('/login');
-    setOpen(o => !o);
+    const t = localStorage.getItem('token');
+    if (!t) return navigate('/login');
+    setOpen((o) => !o);
   };
 
   const markAll = async (e) => {
@@ -72,23 +127,28 @@ export default function NotificationBell({ className = '' }) {
 
   const goAll = () => {
     setOpen(false);
-    navigate('/profile/notifications');
+    // Employer -> /employer/notifications, Candidate -> /profile/notifications
+    if (userType === 'employer') navigate('/employer/notifications');
+    else navigate('/profile/notifications');
   };
 
   const goItem = (n) => {
     setOpen(false);
-    if (n?.jobId) navigate(`/jobs/${n.jobId}`);
-    else navigate('/profile/notifications');
+    if (n?.jobId) {
+      // Với thông báo liên quan job -> nhảy sang trang job public
+      navigate(`/jobs/${n.jobId}`);
+    } else {
+      goAll();
+    }
   };
 
-  // Optional: ẩn chuông nếu không đăng nhập hoặc không phải candidate
-  const raw = localStorage.getItem('user');
-  let userType = null;
-  try { userType = raw ? JSON.parse(raw).userType : null; } catch {}
-  const token = localStorage.getItem('token');
-  if (!token || (userType && userType !== 'candidate' && userType !== 'admin')) {
-    // Nếu chỉ muốn hiện cho candidate, giữ điều kiện trên; nếu muốn ai login cũng thấy, hãy return null ở đây
-    // return null;
+  // Ẩn chuông nếu chưa đăng nhập hoặc userType không phải candidate/employer/admin
+  if (
+    !token ||
+    (userType &&
+      !['candidate', 'employer', 'admin'].includes(String(userType).toLowerCase()))
+  ) {
+    return null;
   }
 
   return (
@@ -96,10 +156,14 @@ export default function NotificationBell({ className = '' }) {
       <button
         type="button"
         onClick={onIconClick}
-        className="relative inline-flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 text-gray-700"
+        className="relative inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 text-gray-200 md:text-gray-700"
         title="Thông báo"
       >
-        {unread > 0 ? <BellRing className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+        {unread > 0 ? (
+          <BellRing className="w-5 h-5" />
+        ) : (
+          <Bell className="w-5 h-5" />
+        )}
         {unread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] grid place-items-center">
             {unread > 99 ? '99+' : unread}
@@ -129,9 +193,15 @@ export default function NotificationBell({ className = '' }) {
                   <li
                     key={n.id}
                     onClick={() => goItem(n)}
-                    className={`p-3 cursor-pointer hover:bg-gray-50 ${n.read ? 'bg-white' : 'bg-blue-50/40'}`}
+                    className={`p-3 cursor-pointer hover:bg-gray-50 ${
+                      n.read ? 'bg-white' : 'bg-blue-50/40'
+                    }`}
                   >
-                    <div className={`text-sm ${n.read ? 'text-gray-800' : 'text-blue-800 font-medium'}`}>
+                    <div
+                      className={`text-sm ${
+                        n.read ? 'text-gray-800' : 'text-blue-800 font-medium'
+                      }`}
+                    >
                       {n.title || 'Thông báo'}
                     </div>
                     {(n.message || n.content) && (
@@ -140,7 +210,9 @@ export default function NotificationBell({ className = '' }) {
                       </div>
                     )}
                     <div className="text-[11px] text-gray-400 mt-1">
-                      {n.createdAt ? new Date(n.createdAt).toLocaleString('vi-VN') : ''}
+                      {n.createdAt
+                        ? new Date(n.createdAt).toLocaleString('vi-VN')
+                        : ''}
                     </div>
                   </li>
                 ))}

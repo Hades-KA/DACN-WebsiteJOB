@@ -15,6 +15,9 @@ const {
   rejectedTemplate
 } = require('../utils/emailTemplates');
 
+// Service thông báo
+const { createNotification } = require('../services/notificationService');
+
 const router = express.Router();
 
 // Bắt buộc đăng nhập
@@ -298,7 +301,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/applications/:id/status  (đổi trạng thái + gửi email)
+// PUT /api/applications/:id/status
 router.put(
   '/:id/status',
   [
@@ -315,7 +318,7 @@ router.put(
 
       const { id } = req.params;
       const toStatus = normalizeStatus(req.body.status);
-      const { interviewTime, interviewMode } = req.body; // 👈 Lấy thêm interviewMode
+      const { interviewTime, interviewMode } = req.body;
 
       const userId = req.user.userId;
       const userType = req.user.userType;
@@ -325,7 +328,6 @@ router.put(
           .json({ message: 'Only employers can update application status' });
       }
 
-      // Lấy đủ dữ liệu để gửi email
       const application = await Application.findOne({
         where: { id },
         include: [
@@ -369,12 +371,9 @@ router.put(
       await application.update({
         status: toStatus,
         statusHistory: JSON.stringify(history)
-        // Nếu bạn có cột interviewTime/interviewMode trong DB có thể lưu thêm ở đây
-        // interviewTime: interviewTime || application.interviewTime,
-        // interviewMode: interviewMode || application.interviewMode,
       });
 
-      // Gửi email theo trạng thái
+      // Gửi email (giữ nguyên logic cũ)
       try {
         const candidate = application.candidate || {};
         const job = application.job || {};
@@ -384,7 +383,6 @@ router.put(
         if (candidateEmail) {
           let tpl = null;
           if (toStatus === 'interviewed') {
-            // 👇 TRUYỀN THÊM interviewMode VÀO TEMPLATE
             tpl = interviewInvitationTemplate({
               candidate,
               job,
@@ -417,6 +415,57 @@ router.put(
         console.error('[EMAIL] send error:', mailErr.message || mailErr);
       }
 
+      // 🔔 GỬI THÔNG BÁO CHO ỨNG VIÊN
+      try {
+        const job = application.job || {};
+        const io = req.app?.get('io') || null;
+
+        let title = 'Cập nhật trạng thái hồ sơ';
+        let msg = `Trạng thái hồ sơ của bạn cho vị trí ${job.title || ''} đã được cập nhật: ${toStatus}.`;
+        let type = 'info';
+
+        if (toStatus === 'reviewing') {
+          title = 'Nhà tuyển dụng đã xem hồ sơ (Từ AI gợi ý)';
+          msg = `Nhà tuyển dụng ${job.company || ''} đã xem .`;
+        } else if (toStatus === 'shortlisted') {
+          title = 'Bạn đã vào danh sách shortlist';
+          msg = `Hồ sơ của bạn cho vị trí ${job.title || ''} đã được đưa vào danh sách ứng viên tiềm năng.`;
+          type = 'success';
+        } else if (toStatus === 'interviewed') {
+          title = 'Mời phỏng vấn';
+          if (interviewTime) {
+            msg = `Bạn được mời phỏng vấn vị trí ${job.title || ''} tại ${
+              job.company || ''
+            } vào lúc ${new Date(interviewTime).toLocaleString('vi-VN')}.`;
+          } else {
+            msg = `Bạn được mời phỏng vấn vị trí ${job.title || ''} tại ${job.company || ''}.`;
+          }
+          type = 'success';
+        } else if (toStatus === 'accepted') {
+          title = 'Chúc mừng bạn trúng tuyển';
+          msg = `Bạn đã được nhận vào vị trí ${job.title || ''} tại ${job.company || ''}.`;
+          type = 'success';
+        } else if (toStatus === 'rejected') {
+          title = 'Kết quả ứng tuyển';
+          msg = `Rất tiếc, hồ sơ của bạn tại ${job.company || ''} cho vị trí ${
+            job.title || ''
+          } chưa phù hợp trong đợt này.`;
+          type = 'warning';
+        }
+
+        await createNotification({
+          receiverId: application.candidateId,
+          type,
+          title,
+          message: msg,
+          jobId: application.jobId,
+          io,
+          alsoEmail: false, // email đã gửi ở trên rồi
+        });
+      } catch (e) {
+        console.error('[Applications] create notification on status change error:', e.message);
+      }
+
       // Trả về bản ghi sau cập nhật
       const refreshed = await Application.findOne({
         where: { id },
@@ -443,119 +492,5 @@ router.put(
   }
 );
 
-// GET /api/applications/:id/score
-router.get(
-  '/:id/score',
-  [param('id').isUUID().withMessage('Invalid application id')],
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user.userId;
-      const userType = req.user.userType;
-
-      const app = await Application.findOne({
-        where: { id },
-        include: [{ model: Job, as: 'job', attributes: ['id', 'employerId'] }]
-      });
-      if (!app) return res.status(404).json({ message: 'Application not found' });
-
-      const ok =
-        userType === 'admin' ||
-        app.candidateId === userId ||
-        (userType === 'employer' && app.job?.employerId === userId);
-      if (!ok) return res.status(403).json({ message: 'Forbidden' });
-
-      const s = await getLatestScore(id);
-
-      res.set('Cache-Control', 'no-store, max-age=0');
-      res.set('Pragma', 'no-cache');
-      res.set('Expires', '0');
-
-      if (!s) return res.json({ message: 'Score retrieved', data: null });
-
-      return res.json({
-        message: 'Score retrieved',
-        data: {
-          scoreTotal: s.scoreTotal,
-          matchedSkills: parseListDeep(s.matchedSkills),
-          missingSkills: parseListDeep(s.missingSkills),
-          missingMustHave: parseListDeep(s.missingMustHave),
-          status: s.status,
-          errorMessage: s.errorMessage,
-          modelVersion: s.modelVersion,
-          generatedAt: s.generatedAt || s.createdAt
-        }
-      });
-    } catch (e) {
-      console.error('Get score error:', e);
-      res.status(500).json({ message: 'Failed to get score' });
-    }
-  }
-);
-
-// POST /api/applications/:id/rescore
-router.post(
-  '/:id/rescore',
-  [param('id').isUUID().withMessage('Invalid application id')],
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user.userId;
-      const userType = req.user.userType;
-
-      const app = await Application.findOne({
-        where: { id },
-        include: [{ model: Job, as: 'job', attributes: ['id', 'employerId'] }]
-      });
-      if (!app) return res.status(404).json({ message: 'Application not found' });
-
-      if (
-        userType !== 'admin' &&
-        !(userType === 'employer' && app.job?.employerId === userId)
-      ) {
-        return res.status(403).json({ message: 'Forbidden' });
-      }
-
-      let scored = await rescoreApplication(id);
-      if (!scored) scored = await getLatestScore(id);
-
-      res.set('Cache-Control', 'no-store, max-age=0');
-      res.set('Pragma', 'no-cache');
-      res.set('Expires', '0');
-
-      return res.json({
-        message: 'Rescored',
-        data: scored
-          ? {
-              scoreTotal: scored.scoreTotal,
-              matchedSkills: parseListDeep(scored.matchedSkills),
-              missingSkills: parseListDeep(scored.missingSkills),
-              missingMustHave: parseListDeep(scored.missingMustHave),
-              status: scored.status,
-              errorMessage: scored.errorMessage,
-              modelVersion: scored.modelVersion,
-              generatedAt: scored.generatedAt || scored.createdAt
-            }
-          : null
-      });
-    } catch (e) {
-      console.error('Rescore error:', e);
-      res.set('Cache-Control', 'no-store, max-age=0');
-      res.set('Pragma', 'no-cache');
-      res.set('Expires', '0');
-      return res.status(200).json({
-        message: 'Rescore error',
-        data: {
-          scoreTotal: 0,
-          matchedSkills: [],
-          missingSkills: [],
-          missingMustHave: [],
-          status: 'error',
-          errorMessage: e?.message || 'Failed to rescore'
-        }
-      });
-    }
-  }
-);
 
 module.exports = router;

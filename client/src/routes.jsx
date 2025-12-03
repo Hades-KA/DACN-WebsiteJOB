@@ -265,6 +265,9 @@ function Shell() {
             <Route path="candidates" element={<EmployerCandidates />} />
             <Route path="reports" element={<EmployerReports />} />
             <Route path="chat" element={<EmployerChat />} />
+
+            {/* 👇 Trang xem tất cả thông báo cho nhà tuyển dụng (dùng lại UI Notifications) */}
+            <Route path="notifications" element={<Notifications />} />
           </Route>
 
           {/* ===== Admin ===== */}

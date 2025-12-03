@@ -4,6 +4,9 @@ const { Op } = require('sequelize');
 const { auth, requireAdmin } = require('../middleware/auth');
 const { User, Job, Application, CV, Score, sequelize } = require('../models');
 
+// 👇 Service tạo notification
+const { createNotification } = require('../services/notificationService');
+
 const router = express.Router();
 
 // ========================== Helpers for Job Deadline ==========================
@@ -13,9 +16,7 @@ function parseDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// Lấy hạn nộp từ các tên cột thường gặp
 function getJobDeadline(job) {
-  // hỗ trợ cả instance lẫn plain object
   const src = job?.toJSON ? job.toJSON() : job || {};
   const dl =
     src.deadline ||
@@ -43,7 +44,6 @@ router.get('/health', (req, res) => {
 });
 
 /* ============================== COMPANIES ============================= */
-// Danh sách “công ty” (employer) + tổng hợp số job (open/total)
 router.get('/companies', async (req, res) => {
   try {
     const { search = '', page = 1, limit = 10, isActive } = req.query;
@@ -54,30 +54,28 @@ router.get('/companies', async (req, res) => {
 
     if (search) {
       where[Op.or] = [
-        { name:    { [Op.like]: `%${search}%` } },
+        { name: { [Op.like]: `%${search}%` } },
         { company: { [Op.like]: `%${search}%` } },
-        { email:   { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } },
       ];
     }
 
-    const pageNum  = Math.max(parseInt(page, 10) || 1, 1);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const pageSize = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
 
-    // 1) Lấy danh sách employer
     const { rows, count } = await User.findAndCountAll({
       where,
       attributes: [
         'id', 'name', 'email', 'isActive', 'createdAt',
         'company', 'companyWebsite', 'companySize', 'industry',
-        'companyCity', 'companyAddress', 'logoUrl', 'phone'
+        'companyCity', 'companyAddress', 'logoUrl', 'phone',
       ],
       order: [['createdAt', 'DESC']],
       limit: pageSize,
       offset: (pageNum - 1) * pageSize,
     });
 
-    // 2) Tổng hợp số job theo employerId: jobsTotal & jobsOpen
-    const ids = rows.map(r => r.id);
+    const ids = rows.map((r) => r.id);
     const jobMap = {};
     if (ids.length) {
       const q = `
@@ -100,7 +98,6 @@ router.get('/companies', async (req, res) => {
       });
     }
 
-    // 3) Ghép dữ liệu jobs vào employer
     const data = rows.map((u) => {
       const k = String(u.id).toUpperCase?.() || String(u.id);
       const jobs = jobMap[k] || { jobsTotal: 0, jobsOpen: 0 };
@@ -111,7 +108,6 @@ router.get('/companies', async (req, res) => {
         phone: u.phone || null,
         isActive: !!u.isActive,
         createdAt: u.createdAt,
-
         company: u.company,
         companyWebsite: u.companyWebsite,
         companySize: u.companySize,
@@ -119,7 +115,6 @@ router.get('/companies', async (req, res) => {
         companyCity: u.companyCity,
         companyAddress: u.companyAddress,
         logoUrl: u.logoUrl,
-
         jobsOpen: jobs.jobsOpen,
         jobsTotal: jobs.jobsTotal,
       };
@@ -128,7 +123,7 @@ router.get('/companies', async (req, res) => {
     res.json({
       message: 'OK',
       data,
-      pagination: { page: pageNum, limit: pageSize, total: count }
+      pagination: { page: pageNum, limit: pageSize, total: count },
     });
   } catch (err) {
     console.error('Admin list companies error:', err);
@@ -136,19 +131,20 @@ router.get('/companies', async (req, res) => {
   }
 });
 
-// Bật/tắt hoạt động employer
 router.patch('/companies/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
-    if (typeof isActive === 'undefined') return res.status(400).json({ message: 'isActive is required' });
+    if (typeof isActive === 'undefined')
+      return res.status(400).json({ message: 'isActive is required' });
 
     const employer = await User.findByPk(id);
-    if (!employer || employer.userType !== 'employer') return res.status(404).json({ message: 'Company not found' });
+    if (!employer || employer.userType !== 'employer')
+      return res.status(404).json({ message: 'Company not found' });
 
     await User.update(
-      { isActive: !!isActive, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
+      { isActive: !!isActive, updatedAt: new Date() },
+      { where: { id }, silent: true, hooks: false },
     );
     const fresh = await User.findByPk(id);
     res.json({ message: 'Company status updated', data: fresh });
@@ -158,13 +154,11 @@ router.patch('/companies/:id/status', async (req, res) => {
   }
 });
 
-/* ======================== COMPANY DETAIL (ADMIN) ======================== */
 router.get('/companies/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
     const employer = await User.findByPk(id, {
-      attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires', 'verificationToken'] }
+      attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires', 'verificationToken'] },
     });
     if (!employer || employer.userType !== 'employer') {
       return res.status(404).json({ message: 'Company not found' });
@@ -174,44 +168,30 @@ router.get('/companies/:id', async (req, res) => {
       where: { employerId: id },
       attributes: ['id', 'title', 'location', 'isActive', 'createdAt'],
       order: [['createdAt', 'DESC']],
-      limit: 20
+      limit: 20,
     });
 
-    const stats = {
-      pending: 0,
-      reviewing: 0,
-      shortlisted: 0,
-      interviewed: 0,
-      accepted: 0,
-      rejected: 0,
-      total: 0
-    };
+    const stats = { pending: 0, reviewing: 0, shortlisted: 0, interviewed: 0, accepted: 0, rejected: 0, total: 0 };
 
     if (recentJobs.length) {
-      const jobIds = recentJobs.map(j => j.id);
+      const jobIds = recentJobs.map((j) => j.id);
       const rows = await sequelize.query(
         `SELECT [status], COUNT(*) AS [count]
          FROM [applications]
          WHERE [jobId] IN (${jobIds.map(() => '?').join(',')})
          GROUP BY [status]`,
-        { replacements: jobIds, type: sequelize.QueryTypes.SELECT }
+        { replacements: jobIds, type: sequelize.QueryTypes.SELECT },
       );
-
-      rows.forEach(r => {
+      rows.forEach((r) => {
         const key = String(r.status || '').toLowerCase();
         if (stats[key] !== undefined) stats[key] = Number(r.count || 0);
       });
-
-      stats.total = stats.pending + stats.reviewing + stats.shortlisted + stats.interviewed + stats.accepted + stats.rejected;
+      stats.total = Object.values(stats).reduce((a, b) => a + b, 0) - stats.total; 
     }
 
     res.json({
       message: 'OK',
-      data: {
-        company: employer,
-        recentJobs,
-        applicationStats: stats
-      }
+      data: { company: employer, recentJobs, applicationStats: stats },
     });
   } catch (err) {
     console.error('Admin get company detail error:', err);
@@ -222,12 +202,13 @@ router.get('/companies/:id', async (req, res) => {
 /* ================================ STATS =============================== */
 router.get('/stats', async (req, res) => {
   try {
-    const [totalUsers, totalEmployers, totalCandidates, totalAdmins] = await Promise.all([
-      User.count(),
-      User.count({ where: { userType: 'employer' } }),
-      User.count({ where: { userType: 'candidate' } }),
-      User.count({ where: { userType: 'admin' } }),
-    ]);
+    const [totalUsers, totalEmployers, totalCandidates, totalAdmins] =
+      await Promise.all([
+        User.count(),
+        User.count({ where: { userType: 'employer' } }),
+        User.count({ where: { userType: 'candidate' } }),
+        User.count({ where: { userType: 'admin' } }),
+      ]);
 
     const [totalJobs, activeJobs, featuredJobs] = await Promise.all([
       Job.count(),
@@ -250,22 +231,14 @@ router.get('/stats', async (req, res) => {
       message: 'OK',
       data: {
         users: { total: totalUsers, employers: totalEmployers, candidates: totalCandidates, admins: totalAdmins },
-        jobs:  { total: totalJobs,   active: activeJobs,       featured: featuredJobs },
+        jobs: { total: totalJobs, active: activeJobs, featured: featuredJobs },
         applications: applicationsByStatus,
         avgMatchScore: Number((avgScore * 10).toFixed(2)),
-      }
+      },
     });
   } catch (err) {
     console.error('Admin stats error:', err);
-    res.status(200).json({
-      message: 'OK',
-      data: {
-        users: { total: 0, employers: 0, candidates: 0, admins: 0 },
-        jobs:  { total: 0, active: 0, featured: 0 },
-        applications: { pending: 0, reviewing: 0, shortlisted: 0, interviewed: 0, accepted: 0, rejected: 0 },
-        avgMatchScore: 0
-      }
-    });
+    res.status(200).json({ message: 'OK', data: { users: {}, jobs: {}, applications: {}, avgMatchScore: 0 } });
   }
 });
 
@@ -289,7 +262,7 @@ router.get('/users', async (req, res) => {
 
     if (search) {
       sequelizeWhere[Op.or] = [
-        { name:  { [Op.like]: `%${search}%` } },
+        { name: { [Op.like]: `%${search}%` } },
         { email: { [Op.like]: `%${search}%` } },
       ];
     }
@@ -308,7 +281,7 @@ router.get('/users', async (req, res) => {
     res.json({
       message: 'OK',
       data: rows,
-      pagination: { page: pageNum, limit: pageSize, total: count }
+      pagination: { page: pageNum, limit: pageSize, total: count },
     });
   } catch (err) {
     console.error('Admin list users error:', err);
@@ -325,12 +298,13 @@ router.patch('/users/:id/role', async (req, res) => {
     }
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.userType === 'admin') return res.status(403).json({ message: 'Không thể chỉnh sửa tài khoản quản trị' });
-    if (user.id === req.user.userId) return res.status(403).json({ message: 'Không thể chỉnh sửa chính tài khoản của bạn' });
+    if (user.userType === 'admin' || user.id === req.user.userId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
 
     await User.update(
-      { userType, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
+      { userType, updatedAt: new Date() },
+      { where: { id }, silent: true, hooks: false },
     );
     const fresh = await User.findByPk(id);
     res.json({ message: 'Role updated', data: fresh.toJSON() });
@@ -348,12 +322,13 @@ router.patch('/users/:id/status', async (req, res) => {
 
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.userType === 'admin') return res.status(403).json({ message: 'Không thể chỉnh sửa tài khoản quản trị' });
-    if (user.id === req.user.userId) return res.status(403).json({ message: 'Không thể chỉnh sửa chính tài khoản của bạn' });
+    if (user.userType === 'admin' || user.id === req.user.userId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
 
     await User.update(
-      { isActive: !!isActive, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
+      { isActive: !!isActive, updatedAt: new Date() },
+      { where: { id }, silent: true, hooks: false },
     );
     const fresh = await User.findByPk(id);
     res.json({ message: 'Status updated', data: fresh.toJSON() });
@@ -363,22 +338,17 @@ router.patch('/users/:id/status', async (req, res) => {
   }
 });
 
+// Block/Unblock
 router.patch('/users/:id/block', async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.userType === 'admin') return res.status(403).json({ message: 'Không thể khóa tài khoản quản trị' });
-    if (user.id === req.user.userId) return res.status(403).json({ message: 'Không thể khóa chính tài khoản của bạn' });
+    if (user.userType === 'admin' || user.id === req.user.userId) return res.status(403).json({ message: 'Forbidden' });
 
-    await User.update(
-      { isActive: false, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
-    );
-    const fresh = await User.findByPk(id);
-    res.json({ message: 'User blocked', data: fresh.toJSON() });
+    await User.update({ isActive: false, updatedAt: new Date() }, { where: { id }, silent: true, hooks: false });
+    res.json({ message: 'User blocked', data: (await User.findByPk(id)).toJSON() });
   } catch (err) {
-    console.error('Admin block user error:', err);
     res.status(500).json({ message: 'Failed to block user' });
   }
 });
@@ -388,17 +358,11 @@ router.patch('/users/:id/unblock', async (req, res) => {
     const { id } = req.params;
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.userType === 'admin') return res.status(403).json({ message: 'Không thể mở khóa tài khoản quản trị' });
-    if (user.id === req.user.userId) return res.status(403).json({ message: 'Không thể mở khóa chính tài khoản của bạn' });
+    if (user.userType === 'admin' || user.id === req.user.userId) return res.status(403).json({ message: 'Forbidden' });
 
-    await User.update(
-      { isActive: true, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
-    );
-    const fresh = await User.findByPk(id);
-    res.json({ message: 'User unblocked', data: fresh.toJSON() });
+    await User.update({ isActive: true, updatedAt: new Date() }, { where: { id }, silent: true, hooks: false });
+    res.json({ message: 'User unblocked', data: (await User.findByPk(id)).toJSON() });
   } catch (err) {
-    console.error('Admin unblock user error:', err);
     res.status(500).json({ message: 'Failed to unblock user' });
   }
 });
@@ -408,15 +372,12 @@ router.get('/jobs', async (req, res) => {
   try {
     const { search = '', page = 1, limit = 10, isActive, isFeatured, company, location } = req.query;
     const where = {};
-    if (typeof isActive   !== 'undefined' && isActive   !== '') where.isActive   = isActive   === 'true' || isActive   === true;
+    if (typeof isActive !== 'undefined' && isActive !== '') where.isActive = isActive === 'true' || isActive === true;
     if (typeof isFeatured !== 'undefined' && isFeatured !== '') where.isFeatured = isFeatured === 'true' || isFeatured === true;
-    if (company)  where.company  = { [Op.like]: `%${company}%` };
+    if (company) where.company = { [Op.like]: `%${company}%` };
     if (location) where.location = { [Op.like]: `%${location}%` };
     if (search) {
-      where[Op.or] = [
-        { title:   { [Op.like]: `%${search}%` } },
-        { company: { [Op.like]: `%${search}%` } },
-      ];
+      where[Op.or] = [{ title: { [Op.like]: `%${search}%` } }, { company: { [Op.like]: `%${search}%` } }];
     }
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -429,16 +390,10 @@ router.get('/jobs', async (req, res) => {
       offset: (pageNum - 1) * pageSize,
     });
 
-    // Chuẩn hóa output: nếu job hết hạn ⇒ trả về isActive=false (hiển thị), kèm isExpired
     const data = rows.map((r) => {
       const j = r.toJSON ? r.toJSON() : r;
       const expired = isJobExpired(j);
-      return {
-        ...j,
-        isExpired: expired,
-        // hiển thị thực tế: không coi là active nếu đã hết hạn
-        isActive: !!(j.isActive && !expired),
-      };
+      return { ...j, isExpired: expired, isActive: !!(j.isActive && !expired) };
     });
 
     res.json({ message: 'OK', data, pagination: { page: pageNum, limit: pageSize, total: count } });
@@ -448,38 +403,109 @@ router.get('/jobs', async (req, res) => {
   }
 });
 
-// Bật/tắt hiển thị Job
+// 
 router.patch('/jobs/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
-    if (typeof isActive === 'undefined') return res.status(400).json({ message: 'isActive is required' });
+    
+    console.log(`Admin changing status Job ID: ${id} to isActive: ${isActive}`);
+
+    if (typeof isActive === 'undefined')
+      return res.status(400).json({ message: 'isActive is required' });
 
     const job = await Job.findByPk(id);
     if (!job) return res.status(404).json({ message: 'Job not found' });
 
+    const wasActive = job.isActive;
     const expired = isJobExpired(job);
+
     // Không cho bật hiển thị nếu tin đã hết hạn
     if (expired && !!isActive) {
-      return res.status(400).json({ message: 'Tin đã hết hạn, không thể bật hiển thị. Vui lòng gia hạn hạn nộp trước.' });
+      return res.status(400).json({
+        message: 'Tin đã hết hạn, không thể bật hiển thị. Vui lòng gia hạn hạn nộp trước.',
+      });
     }
 
+    // Cập nhật - new Date()
     await Job.update(
-      { isActive: !!isActive, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
+      { isActive: !!isActive, updatedAt: new Date() },
+      { where: { id }, silent: true, hooks: false },
     );
+    
     const fresh = await Job.findByPk(id);
     const freshJson = fresh.toJSON();
     const freshExpired = isJobExpired(freshJson);
-    // đồng bộ hiển thị thực tế
-    res.json({ message: 'Status updated', data: { ...freshJson, isExpired: freshExpired, isActive: !!(freshJson.isActive && !freshExpired) } });
+
+    // ===== LOGIC TẠO THÔNG BÁO =====
+    try {
+      const justActivated = wasActive === false && !!isActive === true;
+      const io = req.app?.get('io') || null;
+
+      // 1. Thông báo cho NTD (Khi isActive = true)
+      if (!!isActive === true) {
+        await createNotification({
+          receiverId: freshJson.employerId,
+          type: 'success',
+          title: 'Tin tuyển dụng đã được duyệt',
+          message: `Tin "${freshJson.title}" của bạn đã được admin duyệt và hiển thị tới ứng viên.`,
+          jobId: freshJson.id,
+          io,
+          alsoEmail: true, // NTD thì vẫn gửi mail bình thường (để họ biết tin đã lên sàn)
+        });
+      }
+
+      // 2. Job Alert cho Ứng viên (chỉ khi chuyển từ Tắt -> Bật)
+      if (justActivated) {
+        const employer = await User.findByPk(freshJson.employerId, {
+          attributes: ['id', 'name', 'company'],
+        });
+        const employerLabel = employer?.company || employer?.name || 'Nhà tuyển dụng';
+
+        const candidates = await User.findAll({
+          where: {
+            userType: 'candidate',
+            jobAlertOn: true,
+            jobCategory: freshJson.category || null,
+          },
+          attributes: ['id', 'name', 'email'],
+        });
+
+        // ⭐ SỬA: Tắt email (alsoEmail: false)
+        if (candidates.length > 0) {
+          const notiPromises = candidates.map(c => 
+            createNotification({
+              receiverId: c.id,
+              type: 'info',
+              title: `Có việc làm mới từ ${employerLabel}`,
+              message: `NTD ${employerLabel} vừa tạo tuyển dụng mới: "${freshJson.title}" tại ${freshJson.location || ''}`,
+              jobId: freshJson.id,
+              io,
+              alsoEmail: false, // <--- CHỈ THÔNG BÁO WEB, KHÔNG EMAIL
+            })
+          );
+          await Promise.all(notiPromises);
+        }
+      }
+    } catch (e) {
+       console.error('Noti logic error:', e);
+    }
+    // ===== END LOGIC =====
+
+    res.json({
+      message: 'Status updated',
+      data: {
+        ...freshJson,
+        isExpired: freshExpired,
+        isActive: !!(freshJson.isActive && !freshExpired),
+      },
+    });
   } catch (err) {
     console.error('Admin update job status error:', err);
     res.status(500).json({ message: 'Failed to update job status' });
   }
 });
 
-// Bật/tắt nổi bật Job (không cho bật nếu đã hết hạn)
 router.patch('/jobs/:id/featured', async (req, res) => {
   try {
     const { id } = req.params;
@@ -488,20 +514,14 @@ router.patch('/jobs/:id/featured', async (req, res) => {
 
     const job = await Job.findByPk(id);
     if (!job) return res.status(404).json({ message: 'Job not found' });
-
-    const expired = isJobExpired(job);
-    if (expired && !!isFeatured) {
-      return res.status(400).json({ message: 'Tin đã hết hạn, không thể bật Nổi bật.' });
-    }
+    if (isJobExpired(job) && !!isFeatured) return res.status(400).json({ message: 'Tin hết hạn không thể bật Nổi bật' });
 
     await Job.update(
-      { isFeatured: !!isFeatured, updatedAt: sequelize.literal('GETDATE()') },
-      { where: { id }, silent: true, hooks: false }
+      { isFeatured: !!isFeatured, updatedAt: new Date() },
+      { where: { id }, silent: true, hooks: false },
     );
     const fresh = await Job.findByPk(id);
-    const freshJson = fresh.toJSON();
-    const freshExpired = isJobExpired(freshJson);
-    res.json({ message: 'Featured updated', data: { ...freshJson, isExpired: freshExpired, isActive: !!(freshJson.isActive && !freshExpired) } });
+    res.json({ message: 'Featured updated', data: fresh });
   } catch (err) {
     console.error('Admin update job featured error:', err);
     res.status(500).json({ message: 'Failed to update job featured' });
@@ -514,54 +534,32 @@ router.get('/applications', async (req, res) => {
     const { status, scoreMin, scoreMax, dateFrom, dateTo, page = 1, limit = 10 } = req.query;
     const where = {};
     if (status) where.status = status;
-
-    if (scoreMin !== '' && scoreMin != null) {
-      const minScore = Number(scoreMin) / 10;
-      where.aiMatchScore = { [Op.gte]: minScore };
-    }
-    if (scoreMax !== '' && scoreMax != null) {
-      const maxScore = Number(scoreMax) / 10;
-      where.aiMatchScore = where.aiMatchScore || {};
-      where.aiMatchScore[Op.lte] = maxScore;
-    }
-
-    if (dateFrom) {
-      const from = new Date(dateFrom);
-      from.setHours(0, 0, 0, 0);
-      where.createdAt = { [Op.gte]: from };
-    }
-    if (dateTo) {
-      const to = new Date(dateTo);
-      to.setHours(23, 59, 59, 999);
-      where.createdAt = where.createdAt || {};
-      where.createdAt[Op.lte] = to;
-    }
+    if (scoreMin) where.aiMatchScore = { [Op.gte]: Number(scoreMin) / 10 };
+    if (scoreMax) where.aiMatchScore = { ...(where.aiMatchScore || {}), [Op.lte]: Number(scoreMax) / 10 };
+    if (dateFrom) where.createdAt = { [Op.gte]: new Date(dateFrom) };
+    if (dateTo) where.createdAt = { ...(where.createdAt || {}), [Op.lte]: new Date(dateTo) };
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 10, 100));
 
     const { rows, count } = await Application.findAndCountAll({
       where,
       include: [
         { model: User, as: 'candidate', attributes: ['id', 'name', 'email'] },
-        { model: Job,  as: 'job',       attributes: ['id', 'title', 'company'] },
+        { model: Job, as: 'job', attributes: ['id', 'title', 'company'] },
       ],
       order: [['createdAt', 'DESC']],
       limit: pageSize,
       offset: (pageNum - 1) * pageSize,
     });
-
-    const data = rows.map((r) => {
+    
+    const data = rows.map(r => {
       const j = r.toJSON();
       j.aiMatchScore = j.aiMatchScore != null ? Number(j.aiMatchScore) : null;
       return j;
     });
 
-    res.json({
-      message: 'OK',
-      data,
-      pagination: { page: pageNum, limit: pageSize, total: count }
-    });
+    res.json({ message: 'OK', data, pagination: { page: pageNum, limit: pageSize, total: count } });
   } catch (err) {
     console.error('Admin list applications error:', err);
     res.status(500).json({ message: 'Failed to list applications' });
@@ -574,25 +572,17 @@ router.get('/applications/:id', async (req, res) => {
     const app = await Application.findByPk(id, {
       include: [
         { model: User, as: 'candidate' },
-        { model: Job,  as: 'job' },
-        { model: CV,   as: 'cv', required: false }
-      ]
+        { model: Job, as: 'job' },
+        { model: CV, as: 'cv', required: false },
+      ],
     });
-
     if (!app) return res.status(404).json({ message: 'Application not found' });
-
+    
     const appJson = app.toJSON();
     appJson.aiMatchScore = appJson.aiMatchScore != null ? Number(appJson.aiMatchScore) : null;
+    const score = await Score.findOne({ where: { applicationId: id }, order: [['generatedAt', 'DESC']] });
 
-    const score = await Score.findOne({
-      where: { applicationId: id },
-      order: [['generatedAt', 'DESC']]
-    });
-
-    res.json({
-      message: 'OK',
-      data: { ...appJson, scoreDetails: score ? score.toJSON() : null }
-    });
+    res.json({ message: 'OK', data: { ...appJson, scoreDetails: score ? score.toJSON() : null } });
   } catch (err) {
     console.error('Admin get application error:', err);
     res.status(500).json({ message: 'Failed to get application' });
@@ -603,48 +593,22 @@ router.get('/applications/:id', async (req, res) => {
 router.get('/activities', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 10;
-
     const [recentUsers, recentJobs, recentApps] = await Promise.all([
-      User.findAll({
-        attributes: ['id', 'name', 'createdAt'],
-        order: [['createdAt', 'DESC']],
-        limit: 5
-      }),
-      Job.findAll({
-        attributes: ['id', 'title', 'company', 'createdAt'],
-        order: [['createdAt', 'DESC']],
-        limit: 5
-      }),
+      User.findAll({ attributes: ['id', 'name', 'createdAt'], order: [['createdAt', 'DESC']], limit: 5 }),
+      Job.findAll({ attributes: ['id', 'title', 'company', 'createdAt'], order: [['createdAt', 'DESC']], limit: 5 }),
       Application.findAll({
         attributes: ['id', 'status', 'createdAt'],
-        include: [
-          { model: User, as: 'candidate', attributes: ['name'] },
-          { model: Job,  as: 'job',       attributes: ['title'] }
-        ],
+        include: [{ model: User, as: 'candidate', attributes: ['name'] }, { model: Job, as: 'job', attributes: ['title'] }],
         order: [['createdAt', 'DESC']],
-        limit: 5
-      })
+        limit: 5,
+      }),
     ]);
 
     const activities = [
-      ...recentUsers.map(u => ({
-        type: 'user_registered',
-        message: `${u.name} vừa đăng ký`,
-        createdAt: u.createdAt
-      })),
-      ...recentJobs.map(j => ({
-        type: 'job_created',
-        message: `${j.company} đăng tin "${j.title}"`,
-        createdAt: j.createdAt
-      })),
-      ...recentApps.map(a => ({
-        type: 'application_submitted',
-        message: `${a.candidate?.name || 'Ứng viên'} ứng tuyển "${a.job?.title || 'N/A'}"`,
-        createdAt: a.createdAt
-      }))
-    ]
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, limit);
+      ...recentUsers.map((u) => ({ type: 'user_registered', message: `${u.name} vừa đăng ký`, createdAt: u.createdAt })),
+      ...recentJobs.map((j) => ({ type: 'job_created', message: `${j.company} đăng tin "${j.title}"`, createdAt: j.createdAt })),
+      ...recentApps.map((a) => ({ type: 'application_submitted', message: `${a.candidate?.name || 'Ứng viên'} ứng tuyển "${a.job?.title || 'N/A'}"`, createdAt: a.createdAt })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, limit);
 
     res.json({ data: activities });
   } catch (err) {

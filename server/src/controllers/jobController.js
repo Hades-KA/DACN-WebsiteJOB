@@ -2,6 +2,7 @@
 const { Job, User, Application, CV, sequelize } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const { createNotification } = require('../services/notificationService');
 
 function mapTypeToEn(input) {
   if (!input) return input;
@@ -11,6 +12,7 @@ function mapTypeToEn(input) {
     'ban thoi gian': 'part-time',
     'bán thời gian': 'part-time',
     'thời vụ': 'contract',
+    thuctap: 'intern',
     'thuc tap': 'intern',
     'thực tập': 'intern',
   };
@@ -549,9 +551,8 @@ async function createJob(req, res) {
       niceToHaveSkills: niceToHaveJson || null,
       jdVersion: 1,
 
-      // 🔴 QUAN TRỌNG: JOB MỚI Ở TRẠNG THÁI CHỜ DUYỆT
+      // JOB mới ở trạng thái chờ duyệt
       isActive: false,
-
       isFeatured: false,
       viewsCount: 0,
       applicationsCount: 0,
@@ -672,9 +673,11 @@ async function updateJob(req, res) {
     if (workAddress !== undefined)
       updateData.workAddress = workAddress || null;
 
-    if (jdText !== undefined ||
-        mustHaveSkills !== undefined ||
-        niceToHaveSkills !== undefined) {
+    if (
+      jdText !== undefined ||
+      mustHaveSkills !== undefined ||
+      niceToHaveSkills !== undefined
+    ) {
       updateData.jdVersion = (job.jdVersion || 1) + 1;
     }
 
@@ -753,6 +756,8 @@ async function updateJobStatus(req, res) {
         .json({ message: 'Job not found or no permission' });
 
     const updateData = {};
+    const wasActive = job.isActive;
+
     if (isActive !== undefined) updateData.isActive = Boolean(isActive);
     if (isFeatured !== undefined) updateData.isFeatured = Boolean(isFeatured);
 
@@ -760,6 +765,47 @@ async function updateJobStatus(req, res) {
     console.log(
       `✅ [Update Status] Job ${job.id}: isActive=${job.isActive}, isFeatured=${job.isFeatured}`,
     );
+
+    // 🔔 JOB_PUBLISHED: trước đó OFF, giờ ON => gửi Job Alert
+    try {
+      const nowActive =
+        wasActive === false &&
+        (isActive !== undefined ? Boolean(isActive) : job.isActive) === true;
+
+      if (nowActive) {
+        const io = req.app?.get('io') || null;
+
+        // Lọc cơ bản: cùng category & bật jobAlertOn
+        const candidates = await User.findAll({
+          where: {
+            userType: 'candidate',
+            jobAlertOn: true,
+            jobCategory: job.category || null,
+          },
+          attributes: ['id', 'name', 'email'],
+        });
+
+        console.log(
+          `[Job Alerts] Job ${job.id} activated, sending alerts to ${candidates.length} candidates`,
+        );
+
+        for (const c of candidates) {
+          await createNotification({
+            receiverId: c.id,
+            type: 'info',
+            title: 'Có việc làm mới phù hợp',
+            message: `Công ty ${job.company} vừa đăng tuyển vị trí ${job.title} tại ${
+              job.location || ''
+            }.`,
+            jobId: job.id,
+            io,
+            alsoEmail: false,
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[Job Alerts] create notifications failed:', e.message);
+    }
 
     return res.json({
       success: true,

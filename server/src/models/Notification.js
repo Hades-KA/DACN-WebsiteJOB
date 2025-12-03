@@ -1,6 +1,6 @@
 // server/src/models/Notification.js
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const { sequelize } = require('../config/database'); // Hoặc đường dẫn tới file config db của bạn
 
 const Notification = sequelize.define('Notification', {
   id: {
@@ -11,63 +11,43 @@ const Notification = sequelize.define('Notification', {
   userId: {
     type: DataTypes.UUID,
     allowNull: false,
-    comment: 'ID của user nhận thông báo'
   },
   type: {
     type: DataTypes.STRING(50),
     defaultValue: 'info',
-    comment: 'Loại thông báo: info, success, warning, error'
   },
   title: {
     type: DataTypes.STRING(255),
     allowNull: false,
-    comment: 'Tiêu đề thông báo'
   },
   message: {
     type: DataTypes.TEXT,
     allowNull: true,
-    comment: 'Nội dung ngắn'
   },
   content: {
     type: DataTypes.TEXT,
     allowNull: true,
-    comment: 'Nội dung chi tiết (optional)'
   },
   jobId: {
     type: DataTypes.UUID,
     allowNull: true,
-    comment: 'ID công việc liên quan (nếu có)'
   },
   isRead: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
-    comment: 'Đã đọc chưa'
   },
+  // Chúng ta tự định nghĩa 2 trường này
   createdAt: {
     type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
+    allowNull: true, // Để null cho an toàn, ta sẽ điền bằng Service
   },
   updatedAt: {
     type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
+    allowNull: true,
   }
 }, {
-  tableName: 'notifications',
-  timestamps: true,
-  indexes: [
-    {
-      name: 'idx_userId',
-      fields: ['userId']
-    },
-    {
-      name: 'idx_isRead',
-      fields: ['isRead']
-    },
-    {
-      name: 'idx_userId_isRead',
-      fields: ['userId', 'isRead']
-    }
-  ]
+  tableName: 'Notifications',
+  timestamps: false, // ⛔ QUAN TRỌNG: Tắt tính năng tự động của Sequelize
 });
 
 module.exports = Notification;

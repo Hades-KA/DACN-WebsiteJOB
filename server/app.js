@@ -157,7 +157,7 @@ const startServer = async () => {
   try {
     await initDatabase();
 
-    // Khởi tạo Socket.IO
+    // Khởi tạo Socket.IO và lưu vào app để các service dùng (ví dụ notificationService)
     const io = initSocket(server, allowedOrigins);
     app.set('io', io);
 

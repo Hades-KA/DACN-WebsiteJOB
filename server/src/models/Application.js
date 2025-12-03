@@ -1,6 +1,7 @@
 // server/src/models/Application.js
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+// 👇 Đảm bảo đường dẫn tới file config DB là đúng
+const { sequelize } = require('../config/database'); 
 
 const Application = sequelize.define('Application', {
   id: {
@@ -9,57 +10,52 @@ const Application = sequelize.define('Application', {
     primaryKey: true
   },
 
-  // Trạng thái đơn
+  // Trạng thái đơn: Dùng STRING cho linh hoạt, tránh lỗi ENUM của một số phiên bản SQL
   status: {
-    type: DataTypes.ENUM('pending', 'reviewing', 'shortlisted', 'interviewed', 'accepted', 'rejected'),
+    type: DataTypes.STRING(50),
     allowNull: false,
     defaultValue: 'pending'
   },
 
   // Nội dung đơn
   coverLetter: { type: DataTypes.TEXT, allowNull: true },
-  expectedSalary: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
-  availableFrom: { type: DataTypes.DATE, allowNull: true },
+  expectedSalary: { type: DataTypes.DECIMAL(15, 2), allowNull: true }, // Tăng độ chính xác lương
+  
+  // availableFrom: Dùng DATEONLY để chỉ lưu ngày YYYY-MM-DD, tránh lỗi múi giờ
+  availableFrom: { type: DataTypes.DATEONLY, allowNull: true }, 
+  
   notes: { type: DataTypes.TEXT, allowNull: true },
 
-  // AI (giữ nguyên)
+  // AI Match Score
   aiMatchScore: {
-    type: DataTypes.DECIMAL(3, 1),
-    allowNull: true,
-    validate: { min: 0, max: 10 }
+    type: DataTypes.DECIMAL(4, 1), // 0.0 -> 100.0 hoặc 0.0 -> 10.0 tùy logic
+    allowNull: true
   },
-  aiAnalysis: { type: DataTypes.JSON, allowNull: true, defaultValue: {} },
+  aiAnalysis: { type: DataTypes.TEXT, allowNull: true }, // Lưu JSON string cho an toàn
   isAnalyzed: { type: DataTypes.BOOLEAN, defaultValue: false },
 
   // Khóa ngoại
   jobId: {
     type: DataTypes.UUID,
     allowNull: false,
-    references: { model: 'jobs', key: 'id' }
   },
   candidateId: {
     type: DataTypes.UUID,
     allowNull: false,
-    references: { model: 'users', key: 'id' }
   },
   cvId: {
     type: DataTypes.UUID,
     allowNull: true,
-    references: { model: 'cvs', key: 'id' }
   },
 
-  // ====== NEW: phục vụ nhà tuyển dụng xem đúng hồ sơ tại thời điểm nộp ======
-  // Lưu JSON string snapshot hồ sơ: {name,email,phone,position,location,about,skills,experience,education,avatar,...}
+  // Snapshot & Meta
   candidateSnapshot: { type: DataTypes.TEXT, allowNull: true },
-
-  // Metadata CV để tải nhanh khi employer xem
   cvName: { type: DataTypes.STRING(255), allowNull: true },
   cvFilePath: { type: DataTypes.STRING(500), allowNull: true },
-
-  // Lịch sử thay đổi trạng thái (JSON string, mặc định '[]')
   statusHistory: { type: DataTypes.TEXT, allowNull: true, defaultValue: '[]' },
 
-  // Thời gian
+  // ⭐ FIX QUAN TRỌNG: Tự định nghĩa createdAt/updatedAt dùng GETDATE()
+  // Để tránh lỗi "Conversion failed" của SQL Server
   createdAt: {
     type: DataTypes.DATE,
     allowNull: false,
@@ -71,14 +67,13 @@ const Application = sequelize.define('Application', {
     defaultValue: sequelize.literal('GETDATE()')
   }
 }, {
-  tableName: 'applications',
-  timestamps: false,
+  tableName: 'Applications',
+  timestamps: false, // ⛔ TẮT TỰ ĐỘNG TIMESTAMP CỦA SEQUELIZE
   indexes: [
     { fields: ['status'] },
     { fields: ['jobId'] },
     { fields: ['candidateId'] },
-    { fields: ['aiMatchScore'] },
-    { unique: true, fields: ['jobId', 'candidateId'] }
+    { unique: true, fields: ['jobId', 'candidateId'] } // Chống spam apply nhiều lần
   ]
 });
 
