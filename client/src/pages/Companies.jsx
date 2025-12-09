@@ -2,7 +2,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { companyService } from '../services/api';
-import { Building2, Search, MapPin, ArrowRight, Filter, Briefcase } from 'lucide-react';
+import {
+  Building2,
+  Search,
+  MapPin,
+  ArrowRight,
+  Filter,
+  Briefcase,
+} from 'lucide-react';
 import { vietnamLocations } from '../data/vietnam-locations';
 
 const HOT_PROVINCE_CODES = ['HN', 'HCM', 'DN', 'CT', 'HP', 'BD', 'DNA'];
@@ -62,13 +69,16 @@ export default function Companies() {
       const name = (c.company || c.name || '').toLowerCase();
       const email = (c.email || '').toLowerCase();
       const city = (c.companyCity || '').toLowerCase();
-      
-      const matchSearch = !q || name.includes(q) || email.includes(q) || city.includes(q);
-      
-      const matchProvince = selectedProvinces.length === 0 || selectedProvinces.some((code) => {
-        const province = provinces.find((p) => p.code === code);
-        return province && isCompanyInProvince(c, province);
-      });
+
+      const matchSearch =
+        !q || name.includes(q) || email.includes(q) || city.includes(q);
+
+      const matchProvince =
+        selectedProvinces.length === 0 ||
+        selectedProvinces.some((code) => {
+          const province = provinces.find((p) => p.code === code);
+          return province && isCompanyInProvince(c, province);
+        });
 
       return matchSearch && matchProvince;
     });
@@ -86,8 +96,8 @@ export default function Companies() {
       {/* Thay đổi: w-full để nền tràn viền, nội dung bên trong dùng px-6 hoặc px-10 để canh lề nhẹ */}
       <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white pt-16 pb-24 relative overflow-hidden w-full">
         <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-           <Building2 className="w-96 h-96 -translate-x-1/2 -translate-y-1/2 absolute top-0 left-0 rotate-12" />
-           <Briefcase className="w-64 h-64 translate-x-1/3 translate-y-1/2 absolute bottom-0 right-0 -rotate-12" />
+          <Building2 className="w-96 h-96 -translate-x-1/2 -translate-y-1/2 absolute top-0 left-0 rotate-12" />
+          <Briefcase className="w-64 h-64 translate-x-1/3 translate-y-1/2 absolute bottom-0 right-0 -rotate-12" />
         </div>
 
         {/* Nội dung Hero vẫn nên căn giữa cho đẹp mắt */}
@@ -117,16 +127,10 @@ export default function Companies() {
         </div>
       </div>
 
-      {/* 2. MAIN CONTENT: PHẦN QUAN TRỌNG CẦN SỬA */}
-      {/* 
-          THAY ĐỔI CHÍNH: 
-          - Xóa 'max-w-7xl mx-auto' (gây ra khoảng trống 2 bên).
-          - Thay bằng 'w-full px-4 lg:px-8 xl:px-12' để nội dung tràn ra 2 bên, chỉ chừa lề nhỏ.
-      */}
+      {/* 2. MAIN CONTENT */}
       <div className="w-full px-4 lg:px-8 xl:px-12 -mt-12 relative z-20 pb-20">
         <div className="flex flex-col lg:flex-row gap-8">
-          
-          {/* SIDEBAR: FILTER - Sẽ nằm sát bên trái hơn */}
+          {/* SIDEBAR: FILTER */}
           <aside className="w-full lg:w-72 shrink-0">
             <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden sticky top-24">
               <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -134,15 +138,15 @@ export default function Companies() {
                   <Filter className="w-4 h-4" /> Bộ lọc
                 </h3>
                 {selectedProvinces.length > 0 && (
-                    <button 
-                        onClick={() => setSelectedProvinces([])}
-                        className="text-xs text-blue-600 hover:underline font-medium"
-                    >
-                        Xóa
-                    </button>
+                  <button
+                    onClick={() => setSelectedProvinces([])}
+                    className="text-xs text-blue-600 hover:underline font-medium"
+                  >
+                    Xóa
+                  </button>
                 )}
               </div>
-              
+
               <div className="p-4">
                 <h4 className="text-xs font-bold text-gray-500 mb-3 uppercase">
                   Khu vực
@@ -158,12 +162,18 @@ export default function Companies() {
                         }`}
                       >
                         <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            checked={checked}
-                            onChange={() => toggleProvince(p.code)}
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          checked={checked}
+                          onChange={() => toggleProvince(p.code)}
                         />
-                        <span className={`text-sm ${checked ? 'font-medium text-blue-700' : 'text-gray-700'}`}>
+                        <span
+                          className={`text-sm ${
+                            checked
+                              ? 'font-medium text-blue-700'
+                              : 'text-gray-700'
+                          }`}
+                        >
                           {toDisplayLabel(p)}
                         </span>
                       </label>
@@ -176,18 +186,26 @@ export default function Companies() {
 
           {/* COMPANY LIST */}
           <section className="flex-1">
+            {/* === DÒNG KẾT QUẢ: CHỈ ĐỔI STYLE CHO DỄ ĐỌC === */}
             <div className="flex justify-between items-end mb-4 px-1">
-               <p className="text-gray-500 text-sm">
-                 Kết quả: <span className="font-bold text-gray-900">{filteredCompanies.length}</span> công ty
-               </p>
+              <p className="inline-flex items-center text-sm font-medium text-gray-800 bg-white/90 px-3 py-1 rounded-full shadow-sm">
+                <span className="mr-1">Kết quả:</span>
+                <span className="font-semibold text-blue-600">
+                  {filteredCompanies.length}
+                </span>
+                <span className="ml-1">công ty</span>
+              </p>
             </div>
 
             {loading ? (
               // Loading skeleton...
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
-                 {[...Array(8)].map((_, i) => (
-                    <div key={i} className="bg-white h-48 rounded-xl shadow-sm animate-pulse"></div>
-                 ))}
+                {[...Array(8)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="bg-white h-48 rounded-xl shadow-sm animate-pulse"
+                  />
+                ))}
               </div>
             ) : error ? (
               <div className="bg-red-50 text-red-600 p-4 rounded-xl text-center border border-red-100">
@@ -198,8 +216,7 @@ export default function Companies() {
                 <p className="text-gray-500">Không tìm thấy công ty nào.</p>
               </div>
             ) : (
-              // GRID LIST: Thêm cột cho màn hình lớn (2xl:grid-cols-4)
-              // Khi không gian rộng ra, ta hiển thị 4 cột thay vì 3 để lấp đầy khoảng trống bên phải
+              // GRID LIST
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
                 {filteredCompanies.map((c) => (
                   <div
@@ -226,16 +243,18 @@ export default function Companies() {
                           {c.company || c.name}
                         </h3>
                         <p className="text-xs text-gray-500 truncate mt-0.5">
-                           {c.email}
+                          {c.email}
                         </p>
                       </div>
                     </div>
 
                     <div className="mt-auto pt-3 border-t border-gray-50">
-                        <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                            <span className="truncate">{c.companyCity || 'N/A'}</span>
-                        </div>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                        <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                        <span className="truncate">
+                          {c.companyCity || 'N/A'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}

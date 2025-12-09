@@ -1,6 +1,6 @@
 /* =====================================================
    HỆ THỐNG TUYỂN DỤNG - DATABASE SCHEMA
-   Phiên bản: 2.2 (AI Scoring + Notifications + Chat realtime)
+   Phiên bản: 2.3 (AI Scoring + Notifications + Chat realtime + DATETIMEOFFSET fix)
    DB mặc định: HeThongTuyenDungDB
    ===================================================== */
 
@@ -183,8 +183,9 @@ BEGIN
 
         [employerId] UNIQUEIDENTIFIER NOT NULL,
 
-        [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
-        [updatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+        -- v2.3: dùng DATETIMEOFFSET để tránh lỗi convert khi Sequelize gửi chuỗi có +00:00
+        [createdAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+        [updatedAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
 
         CONSTRAINT [FK_Jobs_Employer] FOREIGN KEY ([employerId]) 
             REFERENCES [dbo].[users]([id]) ON DELETE CASCADE
@@ -207,6 +208,39 @@ BEGIN
     IF COL_LENGTH('dbo.jobs','mustHaveSkills') IS NULL  ALTER TABLE dbo.jobs ADD mustHaveSkills NVARCHAR(MAX);
     IF COL_LENGTH('dbo.jobs','niceToHaveSkills') IS NULL ALTER TABLE dbo.jobs ADD niceToHaveSkills NVARCHAR(MAX);
     IF COL_LENGTH('dbo.jobs','jdVersion') IS NULL       ALTER TABLE dbo.jobs ADD jdVersion INT NOT NULL DEFAULT 1;
+
+    -- v2.3 PATCH: nếu DB cũ còn dùng DATETIME cho createdAt/updatedAt thì convert sang DATETIMEOFFSET
+    IF EXISTS (
+        SELECT 1
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'jobs'
+          AND COLUMN_NAME = 'createdAt'
+          AND DATA_TYPE = 'datetime'
+    )
+    BEGIN
+        DECLARE @dfJobsCreated NVARCHAR(128), @dfJobsUpdated NVARCHAR(128);
+
+        SELECT @dfJobsCreated = dc.name
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE c.object_id = OBJECT_ID('dbo.jobs') AND c.name = 'createdAt';
+
+        SELECT @dfJobsUpdated = dc.name
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE c.object_id = OBJECT_ID('dbo.jobs') AND c.name = 'updatedAt';
+
+        IF @dfJobsCreated IS NOT NULL EXEC('ALTER TABLE dbo.jobs DROP CONSTRAINT ' + @dfJobsCreated);
+        IF @dfJobsUpdated IS NOT NULL EXEC('ALTER TABLE dbo.jobs DROP CONSTRAINT ' + @dfJobsUpdated);
+
+        ALTER TABLE dbo.jobs ALTER COLUMN createdAt DATETIMEOFFSET NOT NULL;
+        ALTER TABLE dbo.jobs ALTER COLUMN updatedAt DATETIMEOFFSET NOT NULL;
+
+        ALTER TABLE dbo.jobs
+          ADD CONSTRAINT DF_Jobs_CreatedAt DEFAULT SYSDATETIMEOFFSET() FOR createdAt;
+        ALTER TABLE dbo.jobs
+          ADD CONSTRAINT DF_Jobs_UpdatedAt DEFAULT SYSDATETIMEOFFSET() FOR updatedAt;
+    END
 END
 GO
 
@@ -428,8 +462,9 @@ BEGIN
         [jobId] UNIQUEIDENTIFIER NULL,
         [payload] NVARCHAR(MAX) NULL DEFAULT '{}',
         [isRead] BIT NOT NULL DEFAULT 0,
-        [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
-        [updatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+        -- v2.3: dùng DATETIMEOFFSET cho createdAt/updatedAt để tương thích Sequelize
+        [createdAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+        [updatedAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
         CONSTRAINT [FK_Noti_User] FOREIGN KEY ([userId]) 
             REFERENCES [dbo].[users]([id]) ON DELETE CASCADE,
         CONSTRAINT [FK_Noti_Job] FOREIGN KEY ([jobId]) 
@@ -451,7 +486,7 @@ BEGIN
     IF COL_LENGTH('dbo.notifications', 'jobId') IS NULL
         ALTER TABLE dbo.notifications ADD [jobId] UNIQUEIDENTIFIER NULL;
     IF COL_LENGTH('dbo.notifications', 'updatedAt') IS NULL
-        ALTER TABLE dbo.notifications ADD [updatedAt] DATETIME NOT NULL DEFAULT GETDATE();
+        ALTER TABLE dbo.notifications ADD [updatedAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET();
 
     IF NOT EXISTS (
         SELECT 1 FROM sys.foreign_keys 
@@ -470,6 +505,38 @@ BEGIN
         CREATE INDEX [IDX_Noti_CreatedAt] ON dbo.notifications([createdAt]);
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_Noti_Type' AND object_id = OBJECT_ID('dbo.notifications'))
         CREATE INDEX [IDX_Noti_Type] ON dbo.notifications([type]);
+
+    -- v2.3 PATCH: convert createdAt/updatedAt từ DATETIME sang DATETIMEOFFSET nếu DB cũ
+    IF EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'notifications'
+          AND COLUMN_NAME = 'createdAt'
+          AND DATA_TYPE = 'datetime'
+    )
+    BEGIN
+        DECLARE @dfNotiCreated NVARCHAR(128), @dfNotiUpdated NVARCHAR(128);
+
+        SELECT @dfNotiCreated = dc.name
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE c.object_id = OBJECT_ID('dbo.notifications') AND c.name = 'createdAt';
+
+        SELECT @dfNotiUpdated = dc.name
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE c.object_id = OBJECT_ID('dbo.notifications') AND c.name = 'updatedAt';
+
+        IF @dfNotiCreated IS NOT NULL EXEC('ALTER TABLE dbo.notifications DROP CONSTRAINT ' + @dfNotiCreated);
+        IF @dfNotiUpdated IS NOT NULL EXEC('ALTER TABLE dbo.notifications DROP CONSTRAINT ' + @dfNotiUpdated);
+
+        ALTER TABLE dbo.notifications ALTER COLUMN createdAt DATETIMEOFFSET NOT NULL;
+        ALTER TABLE dbo.notifications ALTER COLUMN updatedAt DATETIMEOFFSET NOT NULL;
+
+        ALTER TABLE dbo.notifications
+          ADD CONSTRAINT DF_Noti_CreatedAt DEFAULT SYSDATETIMEOFFSET() FOR createdAt;
+        ALTER TABLE dbo.notifications
+          ADD CONSTRAINT DF_Noti_UpdatedAt DEFAULT SYSDATETIMEOFFSET() FOR updatedAt;
+    END
 END
 GO
 
@@ -483,7 +550,8 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-    UPDATE n SET [updatedAt] = GETDATE()
+    -- v2.3: dùng SYSDATETIMEOFFSET cho đúng kiểu DATETIMEOFFSET
+    UPDATE n SET [updatedAt] = SYSDATETIMEOFFSET()
     FROM [dbo].[notifications] n
     INNER JOIN inserted i ON n.[id] = i.[id];
 END

@@ -17,7 +17,7 @@ export default function JobFormModal({ open, onClose, job, onSuccess }) {
     type: 'full-time',
     salary: '',
     experience: '',
-    headcount: '',     // 🆕 Số lượng cần tuyển
+    headcount: '',     
     description: '',
     requirements: '',
     category: '',

@@ -15,7 +15,7 @@ import {
   Heart,
 } from 'lucide-react';
 import { Listbox, Transition } from '@headlessui/react';
-import api, { jobService } from '../services/api';
+import api, { jobService, companyService } from '../services/api';
 
 /* ================= Filters & Mapping ================= */
 const FILTERS = {
@@ -181,7 +181,7 @@ function timeAgo(d) {
   return `${day} ngày trước`;
 }
 
-/* ================= List Item (giống video + nút Lưu) ================= */
+/* ================= Job List Item ================= */
 function JobListItem({ job, onClick, saved, saving, onToggleSave, useAI }) {
   return (
     <div
@@ -191,7 +191,6 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave, useAI }) {
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
       className="relative bg-white border rounded-xl p-4 hover:shadow-sm transition cursor-pointer min-h-[92px]"
     >
-      {/* Nội dung trái (logo + info) */}
       <div className="flex items-start gap-3 pr-24">
         {job.companyLogo ? (
           <img
@@ -222,7 +221,6 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave, useAI }) {
             </span>
           </div>
 
-          {/* Thông tin AI gợi ý */}
           {useAI && typeof job.scoreTotal === 'number' && (
             <div className="mt-1 text-xs text-blue-600">
               AI đánh giá mức độ phù hợp: {Math.round(job.scoreTotal)}%
@@ -236,7 +234,6 @@ function JobListItem({ job, onClick, saved, saving, onToggleSave, useAI }) {
         </div>
       </div>
 
-      {/* Nút lưu job */}
       <button
         type="button"
         onClick={(e) => {
@@ -297,6 +294,9 @@ export default function Jobs() {
   const [useAI, setUseAI] = useState(false);
   const [aiError, setAiError] = useState('');
 
+  // Công ty nổi bật
+  const [topCompanies, setTopCompanies] = useState([]);
+
   // Fetch saved jobs (nếu đã đăng nhập)
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -316,6 +316,29 @@ export default function Jobs() {
         if (active) setSavedMap(map);
       } catch {
         if (active) setSavedMap({});
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Fetch 5 công ty nổi bật mới nhất
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await companyService.getCompanies({
+          page: 1,
+          limit: 5,
+          sort: 'newest',
+        });
+        const data = res.data?.data || res.data || [];
+        if (!active) return;
+        setTopCompanies(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error('Không tải được danh sách công ty nổi bật', e);
+        if (active) setTopCompanies([]);
       }
     })();
     return () => {
@@ -378,7 +401,7 @@ export default function Jobs() {
                 companyLogo: item.job.companyLogo || '',
                 location: item.job.location || '',
                 salary: item.job.salary || 'Thoả thuận',
-                createdAt: item.job.createdAt || null,   // ✅ DÙNG NGÀY TỪ BACKEND
+                createdAt: item.job.createdAt || null,
                 category: '',
                 scoreTotal: item.scoreTotal || 0,
                 explanation: item.explanation || '',
@@ -853,12 +876,50 @@ export default function Jobs() {
           {/* Sidebar */}
           <aside className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-4">
             {/* Công ty nổi bật */}
-            <div className="bg-white border rounded-2xl p-4">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                Công ty nổi bật
-              </h3>
-              <div className="text-sm text-gray-500 flex items-center justify-center h-24">
-                No data
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              {/* Header: màu tím/hồng giống video */}
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="font-bold text-base text-pink-700">
+                  Công ty nổi bật
+                </h3>
+              </div>
+
+              <div className="px-5">
+                {topCompanies.length === 0 ? (
+                  <div className="text-sm text-gray-400 text-center py-6 italic">
+                    Đang tải...
+                  </div>
+                ) : (
+                  topCompanies.map((company) => (
+                    <div
+                      key={company.id}
+                      onClick={() =>
+                        navigate(`/companies?companyId=${company.id}`)
+                      }
+                      className="group flex items-center gap-3 py-3 border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors -mx-5 px-5"
+                    >
+                      {/* Logo: không viền, nằm bên trái giống demo */}
+                      <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+                        {company.logoUrl ? (
+                          <img
+                            src={company.logoUrl}
+                            alt={company.company || company.name}
+                            className="max-w-full max-h-full object-contain"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded bg-gray-100" />
+                        )}
+                      </div>
+
+                      {/* Tên công ty */}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-semibold text-gray-800 group-hover:text-pink-700 transition-colors line-clamp-2 leading-snug">
+                          {company.company || company.name}
+                        </h4>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

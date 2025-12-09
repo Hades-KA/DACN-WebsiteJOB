@@ -85,7 +85,7 @@ export default function Home() {
   }, [catPages.length]);
 
 
-  // === 2. LOGIC API "KHÔNG GIỚI HẠN" (LIMIT 100) ===
+  // === 2. LOGIC API (LIMIT 100) ===
   const [featSlide, setFeatSlide] = useState(0);
 
   useEffect(() => {
@@ -94,7 +94,6 @@ export default function Home() {
       try {
         setLoading(true);
         
-        // Đặt limit = 100 để load thoải mái (40 job sẽ load hết 1 lần)
         const BIG_LIMIT = 100; 
 
         const r1 = await jobService.getAllJobs({ featured: true, limit: BIG_LIMIT, sort: 'newest' });
@@ -118,7 +117,7 @@ export default function Home() {
     return () => { active = false; };
   }, []);
 
-  // === 3. CẤU HÌNH SLIDER 8 Ô (2 HÀNG x 4 CỘT) ===
+  // === 3. SLIDER VIỆC LÀM NỔI BẬT 8 Ô ===
   const featuredJobs = jobs;
   const featPageSize = 8; // 8 job mỗi trang
   const featPages = Array.from({ length: Math.ceil(featuredJobs.length / featPageSize) }, (_, i) =>
@@ -208,7 +207,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* === VIỆC LÀM NỔI BẬT (GRID 8 Ô) === */}
+      {/* === VIỆC LÀM NỔI BẬT (GRID 8 Ô, CÓ PHÂN TRANG) === */}
       <section className="container mx-auto px-4 mt-12 mb-16">
         <h2 className="text-center text-2xl font-bold text-[#6b21a8] mb-8">Việc làm nổi bật</h2>
         
@@ -223,20 +222,19 @@ export default function Home() {
             }}
           >
             <div
-              className="flex transition-transform duration-700 ease-[cubic-bezier(0.22,0.61,0.36,1)]"
+              className="flex items-start transition-transform duration-700 ease-[cubic-bezier(0.22,0.61,0.36,1)]"
               style={{
                 width: `${featPages.length * 100}%`,
                 transform: `translateX(-${featSlide * (100 / featPages.length)}%)`,
               }}
             >
               {featPages.map((group, gi) => (
-                /* GRID 4 CỘT x 2 HÀNG (Auto fill) */
                 <div key={gi} className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-1">
                   {group.map((job, i) => (
                     <div
                       key={`${gi}-${job.id}-${i}`}
                       onClick={() => navigate(`/jobs/${job.id}`)}
-                      className="bg-white rounded-xl p-5 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1)] hover:shadow-lg transition-all duration-300 flex flex-col justify-between cursor-pointer h-full border border-transparent hover:border-[#d946ef] group"
+                      className="bg-white rounded-xl p-5 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1)] hover:shadow-lg transition-all duration-300 flex flex-col justify-between cursor-pointer border border-transparent hover:border-[#d946ef] group"
                     >
                       {/* Logo & Title */}
                       <div className="flex gap-4 mb-4">
@@ -287,7 +285,7 @@ export default function Home() {
               ))}
             </div>
             
-            {/* Pagination Dots - Sẽ tự động tăng theo số lượng job */}
+            {/* Pagination Dots */}
             {featPages.length > 1 && (
               <div className="flex justify-center gap-2 mt-8 flex-wrap">
                 {featPages.map((_, i) => (
