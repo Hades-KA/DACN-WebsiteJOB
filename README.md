@@ -1,162 +1,200 @@
-# Job Hire Platform - Hệ thống tuyển dụng 
+# Job Hire Platform – Hệ thống tuyển dụng tích hợp AI
 
-Hệ thống web tuyển dụng tích hợp AI/ML để phân tích CV và dự đoán hiệu quả ứng viên
+Hệ thống web hỗ trợ tuyển dụng ngành CNTT, gồm 3 vai trò **Ứng viên – Nhà tuyển dụng – Admin**, tích hợp AI để:
 
-## ⚡ Quick Start (dành cho thành viên team)
+- Phân tích CV và so khớp với JD.
+- Gợi ý việc làm cho ứng viên.
+- Gợi ý, chấm điểm ứng viên cho nhà tuyển dụng.
 
-1) Clone mã nguồn
-```bash
-git clone <repository-url>
-cd job-hire-platform
-```
+README này được viết để **giảng viên có thể cài đặt và chạy Demo trên một máy duy nhất** theo từng bước cụ thể.
 
-2) Cài đặt và chạy Backend (mở Terminal 1)
-```bash
-cd server
-npm install
+---
 
-# Tạo file môi trường
-copy .env.example .env   # Trên Windows PowerShell dùng: cp .env.example .env
+## 1. Môi trường & công nghệ
 
-# Cập nhật .env (ví dụ SQL Server local)
-# DB_DIALECT=mssql là bắt buộc khi dùng SQL Server
-#
-# DB_HOST=localhost
-# DB_PORT=1433
-# DB_NAME=HeThongTuyenDungDB
-# DB_USER=sa
-# DB_PASSWORD=your_password
-# DB_DIALECT=mssql
-# JWT_SECRET=your_super_secret_jwt_key
-# AI_API_URL=http://localhost:8000/api
-# AI_API_KEY=your_ai_api_key
+- **Hệ điều hành khuyến nghị**: Windows 10/11 64‑bit.
+- **Node.js**: ≥ 18.x (khuyến nghị bản LTS mới nhất).
+- **npm**: đi kèm Node.js.
+- **SQL Server**: 2019 trở lên (Developer/Express đều được).
+- **SQL Server Management Studio (SSMS)**: để restore / chạy script SQL.
+- **Python**: ≥ 3.8 (để chạy AI service từ đồ án cơ sở).
+- Trình duyệt: Chrome / Edge mới nhất.
 
-npm run dev   # chạy API tại http://localhost:5000 (hoặc cổng bạn cấu hình)
-```
+**Backend**: Node.js, Express, Sequelize, SQL Server, JWT, Multer, Bcrypt, Express‑Validator…  
+**Frontend**: React + Vite, React Router, Tailwind CSS, Axios…  
+**AI service**: Flask/Python, sử dụng các mô‑đun NLP/ML từ đồ án cơ sở.
 
-3) Cài đặt và chạy Frontend (mở Terminal 2)
-```bash
-cd client
-npm install
-npm run dev   # Vite dev server (ví dụ http://localhost:5173)
-```
+---
 
-4) Đăng nhập và truy cập Admin
-- Đăng nhập bằng tài khoản có `userType=admin` (route Admin: `/admin`).
-- Các route công khai, đăng nhập/đăng ký, và dashboard nhà tuyển dụng vẫn hoạt động bình thường.
+## 2. Chuẩn bị Database (bắt buộc trước khi chạy Backend)
 
-5) Lỗi thường gặp
-- Kết nối DB thất bại: kiểm tra `DB_HOST/PORT/USER/PASSWORD/DB_NAME/DB_DIALECT` trong `server/.env`.
-- Cổng bị chiếm: đổi cổng trong cấu hình (hoặc tắt tiến trình đang dùng cổng đó).
-- AI service không phản hồi: kiểm tra `AI_API_URL` và service Python có chạy.
+1. Mở **SQL Server Management Studio** và kết nối tới SQL Server local.
+2. Tạo mới một database trống, ví dụ: `HeThongTuyenDungDB`.
+3. Mở file script:
+   - `HeThongTuyenDung1.sql` (trong thư mục gốc project).
+4. Chọn database vừa tạo và **Execute** toàn bộ script để tạo bảng, khoá ngoại, trigger…
+5. Kiểm tra lại trong `HeThongTuyenDungDB` đã có đầy đủ các bảng: `users`, `jobs`, `cvs`, `applications`, `scores`, `saved_jobs`, `notifications`, `conversations`, `messages`, v.v.
 
-## 🚀 Tính năng chính
+> Lưu ý: Nếu đã có database cũ trùng tên, nên **drop** hoặc đổi tên trước khi chạy script để tránh lỗi.
 
-### Frontend (React + Vite)
-- **Trang chủ**: Tìm kiếm việc làm với bộ lọc 
-- **Đăng nhập/Đăng ký**: Hỗ trợ ứng viên và nhà tuyển dụng
-- **Đăng tin tuyển dụng**: Tạo tin tuyển dụng chi tiết
-- **Danh sách CV**: Quản lý và phân tích CV với AI
-- **Dashboard**: Thống kê và báo cáo chi tiết
-- **Upload CV**: Tải lên và phân tích CV tự động
+---
 
-### Backend (Node.js + Express)
-- **API RESTful**: Đầy đủ endpoints cho tất cả chức năng
-- **Xác thực JWT**: Bảo mật cao với token
-- **Kết nối SQL Server**: Quản lý dữ liệu với Sequelize ORM
-- **Tích hợp AI/ML**: Phân tích CV và dự đoán hiệu quả
-- **Upload file**: Hỗ trợ PDF, Word, TXT
-- **Rate limiting**: Bảo vệ API khỏi spam
+## 3. Cấu hình Backend (server)
 
-### AI/ML Integration
-- **Phân tích CV**: Đánh giá kỹ năng, kinh nghiệm, điểm mạnh/yếu
-- **Dự đoán hiệu quả**: Dự đoán khả năng thành công của ứng viên
-- **Gợi ý việc làm**: AI đề xuất việc làm phù hợp
-- **Gợi ý ứng viên**: AI đề xuất ứng viên phù hợp cho công việc
-- **Phân tích độ phù hợp**: So sánh CV với yêu cầu công việc
+1. Mở **Terminal / PowerShell** tại thư mục gốc project:
 
-## 🛠️ Công nghệ sử dụng
+   ```bash
+   cd server
+   npm install
+   ```
 
-### Frontend
-- **React 19** - UI framework
-- **Vite** - Build tool nhanh
-- **React Router** - Điều hướng
-- **Tailwind CSS** - Styling
-- **Axios** - HTTP client
-- **React Hook Form** - Form handling
-- **Lucide React** - Icons
+2. Tạo file môi trường `.env` từ mẫu:
 
-### Backend
-- **Node.js** - Runtime
-- **Express.js** - Web framework
-- **Sequelize** - ORM
-- **SQL Server** - Database
-- **JWT** - Authentication
-- **Multer** - File upload
-- **Bcryptjs** - Password hashing
-- **Express Validator** - Validation
+   ```bash
+   copy .env.example .env   # Trên PowerShell
+   ```
 
-### AI/ML
-- **Python API** - AI/ML service (từ đồ án cơ sở)
-- **NLP** - Xử lý ngôn ngữ tự nhiên
-- **Machine Learning** - Dự đoán và phân tích
-- **Big Data** - Xử lý dữ liệu lớn
+3. Mở file `server/.env` và chỉnh các biến quan trọng (ví dụ cấu hình SQL Server local):
 
-## 📦 Cài đặt và chạy
-
-### Yêu cầu hệ thống
-- Node.js >= 16.0.0
-- SQL Server 2019+
-- Python 3.8+ (cho AI service)
-
-### 1. Clone repository
-```bash
-git clone <repository-url>
-cd job-hire-platform
-```
-
-### 2. Cài đặt Frontend
-```bash
-cd client
-npm install
-npm run dev
-```
-
-### 3. Cài đặt Backend
-```bash
-cd server
-npm install
-```
-
-### 4. Cấu hình Database
-1. Tạo database `HeThongTuyenDungDB` trong SQL Server
-2. Sao chép file `.env.example` thành `.env`
-3. Cập nhật thông tin database trong `.env`:
-
-```env
+   ```env
+# Kết nối SQL Server
 DB_HOST=localhost
 DB_PORT=1433
 DB_NAME=HeThongTuyenDungDB
 DB_USER=sa
-DB_PASSWORD=your_password
-JWT_SECRET=your_super_secret_jwt_key
-```
+DB_PASSWORD=YourStrong!Passw0rd
+DB_DIALECT=mssql
 
-### 5. Chạy Backend
-```bash
-cd server
-npm run dev
-```
+# JWT dùng cho đăng nhập
+JWT_SECRET=change_this_to_a_random_secret
 
-### 6. Cấu hình AI Service
-1. Đảm bảo AI service từ đồ án cơ sở đang chạy
-2. Cập nhật `AI_API_URL` trong `.env`:
-```env
-AI_API_URL=http://localhost:8000/api
-AI_API_KEY=your_ai_api_key
-```
+# Địa chỉ AI service (Flask)
+AI_BASE_URL=http://localhost:8001/v1
+AI_API_KEY=dev-key
 
-## 🗂️ Cấu trúc dự án
+# Cổng Backend
+PORT=5001
+   ```
+
+4. Chạy Backend (giữ terminal này luôn mở trong khi Demo):
+
+   ```bash
+   npm run dev
+   ```
+
+   - API sẽ chạy tại: `http://localhost:5001/api` (hoặc cổng bạn cấu hình trong biến PORT).
+   - Nếu log báo **kết nối DB lỗi**, kiểm tra lại thông tin `DB_*` và chắc chắn SQL Server đang chạy.
+
+---
+
+## 4. Cấu hình & chạy AI Service (Python)
+
+> Phần này dùng lại mã nguồn AI từ đồ án cơ sở. Nếu chỉ Demo chức năng cơ bản (không cần chấm điểm realtime) có thể bỏ qua, nhưng để các màn hình AI (gợi ý, scoring, báo cáo) hoạt động đầy đủ thì nên bật.
+
+1. Mở một thư mục chứa project AI (ví dụ `ai-service/`).
+2. Tạo môi trường ảo Python (khuyến nghị):
+
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. Chạy Flask/UVicorn (tùy theo project AI của bạn), ví dụ:
+
+   ```bash
+   python main.py
+   ```
+
+4. Đảm bảo AI service chạy OK, ví dụ truy cập:  
+   `http://localhost:8001/health` (nếu có endpoint health)  
+   hoặc các endpoint dưới prefix `/v1` như `/v1/score-match`.  
+   (địa chỉ này phải trùng với `AI_BASE_URL` trong `server/.env`, mặc định `http://localhost:8001/v1`).
+
+---
+
+## 5. Cấu hình & chạy Frontend (client)
+
+1. Mở **Terminal mới** tại thư mục gốc project rồi chạy:
+
+   ```bash
+   cd client
+   npm install
+   ```
+
+2. Chạy Vite dev server:
+
+   ```bash
+   npm run dev
+   ```
+
+3. Truy cập trên trình duyệt:  
+   `http://localhost:5175` (hoặc đúng cổng do Vite hiển thị).
+
+4. Frontend gọi Backend thông qua biến môi trường `VITE_API_URL`.
+   - Tạo file `.env.local` trong thư mục `client` với nội dung:
+
+     ```env
+     VITE_API_URL=http://localhost:5001/api
+     ```
+
+   - Nếu PORT của backend thay đổi, chỉ cần sửa lại giá trị `VITE_API_URL` cho phù hợp.
+---
+
+## 6. Tài khoản demo gợi ý (có thể chỉnh lại cho phù hợp)
+
+Tùy dữ liệu nhóm đã seed vào DB. Gợi ý một số tài khoản mẫu (nếu đã tạo trước):
+
+- **Admin**:  
+  - Email: `admin@example.com`  
+  - Mật khẩu: `123456`  
+  - Đăng nhập → truy cập `/admin`.
+
+- **Nhà tuyển dụng**:  
+  - Email: `employer@example.com`  
+  - Mật khẩu: `123456`  
+  - Đăng nhập → xem Dashboard, đăng tin, xem Applicants, Reports.
+
+- **Ứng viên**:  
+  - Email: `candidate@example.com`  
+  - Mật khẩu: `123456`  
+  - Đăng nhập → cập nhật hồ sơ, bật AI gợi ý việc làm, apply job.
+
+> Nếu giảng viên dùng DB mới hoàn toàn, nên tạo sẵn vài tài khoản trong bảng `users` hoặc thông qua màn hình đăng ký rồi cập nhật `userType` cho đúng (candidate/employer/admin).
+
+---
+
+## 7. Các bước Demo gợi ý
+
+1. Đăng nhập bằng tài khoản **ứng viên** → vào trang **Việc làm** → bật chế độ **AI gợi ý** để xem danh sách job kèm % phù hợp.
+2. Ứng viên chọn 1 job → **Apply**. Backend sẽ tạo `applications` và enqueue chấm điểm AI.
+3. Đăng nhập bằng **nhà tuyển dụng** → mở **Applicants** của job đó:  
+   - Xem 3 tab: *AI gợi ý (>=70%)*, *Phù hợp (>=50%)*, *Không phù hợp (<50%)*.  
+   - Thấy điểm AI và kỹ năng phù hợp/thiếu.
+4. Mở trang **Reports/Báo cáo** để xem phân bố điểm AI, phễu tuyển dụng, top kỹ năng match/thiếu, top job hiệu suất.
+
+---
+
+## 8. Lỗi thường gặp & cách xử lý nhanh
+
+- **Backend không kết nối được DB**:
+  - Kiểm tra SQL Server đã chạy.  
+  - Mở `server/.env` xem `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_DIALECT=mssql` đã đúng chưa.
+
+- **Frontend không gọi được API (CORS / Network Error)**:
+  - Kiểm tra backend có chạy ở `http://localhost:5001`.  
+  - Nếu backend dùng cổng khác, sửa biến `VITE_API_URL` trong file `.env.local` của thư mục `client` cho trùng với URL backend (ví dụ: `VITE_API_URL=http://localhost:5001/api`).
+
+- **AI features không hoạt động (không có điểm AI/gợi ý)**:
+  - Kiểm tra AI service Python có chạy và `AI_BASE_URL` trong `server/.env` đúng (`http://localhost:8001/v1`).  
+  - Xem log của backend (terminal server) để biết lỗi cụ thể.
+
+- **Cổng bị chiếm (EADDRINUSE)**:
+  - Đổi PORT trong `.env` hoặc tắt ứng dụng khác đang dùng cùng cổng.
+
+---
+
+## 9. Cấu trúc thư mục (tóm tắt)
 
 ```
 job-hire-platform/
@@ -170,20 +208,16 @@ job-hire-platform/
 │   └── package.json
 ├── server/                # Backend Node.js
 │   ├── src/
-│   │   ├── config/        # Database config
-│   │   ├── controllers/   # Route controllers
-│   │   ├── middleware/    # Custom middleware
-│   │   ├── models/        # Database models
-│   │   ├── routes/        # API routes
-│   │   └── services/      # Business logic
+│   │   ├── config/        # Cấu hình DB & Sequelize
+│   │   ├── controllers/   # Xử lý nghiệp vụ cho từng module
+│   │   ├── middleware/    # Middleware (auth, upload,...)
+│   │   ├── models/        # Sequelize models mapping SQL Server
+│   │   ├── routes/        # Khai báo API endpoints
+│   │   ├── services/      # Business logic + gọi AI service
+│   │   └── utils/         # Helper (mailer, email template,...)
 │   └── package.json
 └── README.md
 ```
-
-## 🔧 API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Đăng ký
 - `POST /api/auth/login` - Đăng nhập
 - `GET /api/auth/profile` - Lấy thông tin user
 - `PUT /api/auth/profile` - Cập nhật profile
@@ -284,21 +318,13 @@ cd client && npm run build
 cd server && npm start
 ```
 
-## 🤝 Đóng góp
-
-1. Fork repository
-2. Tạo feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Tạo Pull Request
-
 ## 📝 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ## 🙏 Acknowledgments
 
-- React team cho framework tuyệt vời
-- Node.js community cho ecosystem phong phú
+- React 
+- Node.js 
 - AI/ML từ đồ án cơ sở
-- Tất cả contributors và supporters
+

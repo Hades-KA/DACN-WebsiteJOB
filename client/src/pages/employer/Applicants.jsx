@@ -27,8 +27,11 @@ const pickMissing = (score) =>
   asList(
     (Array.isArray(score?.missingMustHave) && score?.missingMustHave.length
       ? score?.missingMustHave
-      : score?.missing_must_have
-    ) ?? score?.missingSkills ?? score?.missing_skills ?? score?.missing ?? []
+      : score?.missing_must_have) ??
+      score?.missingSkills ??
+      score?.missing_skills ??
+      score?.missing ??
+      [],
   );
 
 const SkillChip = ({ label, tone = 'green' }) => {
@@ -61,8 +64,21 @@ function buildISOWithTZ(dateStr, timeStr) {
 }
 
 // ===== Ngưỡng AI =====
-const THRESHOLD_OK = 50;     // >= 50%: "phù hợp"
-const THRESHOLD_STRONG = 70; // >= 70%: "AI gợi ý (ứng viên phù hợp vị trí)"
+const THRESHOLD_OK = 50; // Phù hợp: >= 50%
+const DEFAULT_STRONG_THRESHOLD = 70;
+
+// Khóa lưu ngưỡng AI gợi ý
+const STRONG_THRESHOLD_KEY_PREFIX = 'jobhire_ai_strong_threshold_job_';
+const GLOBAL_STRONG_THRESHOLD_KEY = 'jobhire_ai_strong_threshold_global';
+
+const getGlobalStrongThreshold = () => {
+  try {
+    const v = localStorage.getItem(GLOBAL_STRONG_THRESHOLD_KEY);
+    const num = Number(v);
+    if (Number.isFinite(num) && num >= THRESHOLD_OK && num <= 100) return num;
+  } catch {}
+  return DEFAULT_STRONG_THRESHOLD;
+};
 
 export default function Applicants() {
   const { id: idParam, jobId: jobIdParam } = useParams();
@@ -76,9 +92,36 @@ export default function Applicants() {
   const [rescoreAllLoading, setRescoreAllLoading] = useState(false);
   const [rejectAllLoading, setRejectAllLoading] = useState(false);
 
+  // Ngưỡng AI gợi ý do NTD chọn (slider)
+  const [strongThreshold, setStrongThreshold] = useState(DEFAULT_STRONG_THRESHOLD);
+
+  // Load dữ liệu ứng viên
   useEffect(() => {
     if (!idFromRoute) return;
     loadData(idFromRoute);
+  }, [idFromRoute]);
+
+  // Đọc ngưỡng AI gợi ý đã lưu (ưu tiên theo job, sau đó global)
+  useEffect(() => {
+    if (!idFromRoute) {
+      setStrongThreshold(getGlobalStrongThreshold());
+      return;
+    }
+    try {
+      const jobKey = `${STRONG_THRESHOLD_KEY_PREFIX}${idFromRoute}`;
+      const savedJob = localStorage.getItem(jobKey);
+      if (savedJob != null) {
+        const num = Number(savedJob);
+        if (Number.isFinite(num) && num >= THRESHOLD_OK && num <= 100) {
+          setStrongThreshold(num);
+          return;
+        }
+      }
+      // fallback global
+      setStrongThreshold(getGlobalStrongThreshold());
+    } catch {
+      setStrongThreshold(DEFAULT_STRONG_THRESHOLD);
+    }
   }, [idFromRoute]);
 
   const loadData = async (jobId) => {
@@ -90,7 +133,9 @@ export default function Applicants() {
       setJob(jobData);
 
       // 2) Applications
-      const appsRes = await applicationService.getJobApplications(jobId);
+      const appsRes = await applicationService.getJobApplications(jobId, {
+        limit: 1000,
+      });
       const apps = appsRes.data?.data || appsRes.data || [];
 
       // 3) Điểm AI cho từng application
@@ -105,11 +150,11 @@ export default function Applicants() {
           } catch (error) {
             console.warn(
               `Failed to get score for ${app.id}:`,
-              error?.response?.status || error?.message
+              error?.response?.status || error?.message,
             );
             return { ...app, aiScore: null };
           }
-        })
+        }),
       );
 
       setApplications(withScores);
@@ -117,54 +162,70 @@ export default function Applicants() {
       console.error(
         'Load data error:',
         error?.response?.status,
-        error?.response?.data || error?.message
+        error?.response?.data || error?.message,
       );
     } finally {
       setLoading(false);
     }
   };
 
+  // Cập nhật ngưỡng AI gợi ý + lưu localStorage (global + theo job)
+  const updateStrongThreshold = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return;
+    if (num < THRESHOLD_OK || num > 100) return;
+
+    setStrongThreshold(num);
+
+    try {
+      localStorage.setItem(GLOBAL_STRONG_THRESHOLD_KEY, String(num));
+      if (idFromRoute) {
+        const jobKey = `${STRONG_THRESHOLD_KEY_PREFIX}${idFromRoute}`;
+        localStorage.setItem(jobKey, String(num));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const visibleApps = applications;
 
-  // NHÓM 1: AI gợi ý (ứng viên phù hợp vị trí) – điểm >= 70
+  // NHÓM 1: AI gợi ý
   const strongApps = visibleApps
-    .filter((a) => (a.aiScore?.scoreTotal || 0) >= THRESHOLD_STRONG)
+    .filter((a) => (a.aiScore?.scoreTotal || 0) >= strongThreshold)
     .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
 
-  // NHÓM 2: Phù hợp – TẤT CẢ ứng viên điểm >= 50 (gồm cả strongApps)
+  // NHÓM 2: Phù hợp >= 50
   const suitableApps = visibleApps
     .filter((a) => (a.aiScore?.scoreTotal || 0) >= THRESHOLD_OK)
     .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
 
-  // NHÓM 3: Không phù hợp – điểm < 50
+  // NHÓM 3: Không phù hợp < 50
   const badApps = visibleApps
     .filter((a) => (a.aiScore?.scoreTotal || 0) < THRESHOLD_OK)
     .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
 
-  // Mời phỏng vấn (chỉ dùng cho nhóm strong)
+  // Mời phỏng vấn
   const inviteInterview = async (applicationId) => {
     const app = applications.find((a) => a.id === applicationId);
     const name = app?.candidate?.name || 'ứng viên';
 
-    // Xác nhận hành động
     const ok = window.confirm(
-      `Xác nhận mời ${name} phỏng vấn?\nỨng viên sẽ được chuyển sang mục "Quản lý ứng viên" để bạn đặt lịch chi tiết.`
+      `Xác nhận mời ${name} phỏng vấn?\nỨng viên sẽ được chuyển sang mục "Quản lý ứng viên" để bạn đặt lịch chi tiết.`,
     );
     if (!ok) return;
 
     try {
       setInviting(applicationId);
 
-      // 👉 Chỉ đổi trạng thái sang 'shortlisted' – KHÔNG hỏi ngày/giờ và KHÔNG gửi email ở đây
       await applicationService.updateApplicationStatus(applicationId, {
         status: 'shortlisted',
       });
 
       alert(
-        `Đã chuyển ${name} sang bước phỏng vấn (đã mời).\nBạn có thể lên lịch chi tiết trong mục "Quản lý ứng viên".`
+        `Đã chuyển ${name} sang bước phỏng vấn (đã mời).\nBạn có thể lên lịch chi tiết trong mục "Quản lý ứng viên".`,
       );
 
-      // Reload lại danh sách AI gợi ý (cập nhật nút/hiển thị)
       await loadData(idFromRoute);
     } catch (error) {
       alert(error?.response?.data?.message || 'Có lỗi xảy ra khi mời phỏng vấn');
@@ -173,7 +234,7 @@ export default function Applicants() {
     }
   };
 
-  // Từ chối tất cả nhóm "Không phù hợp"
+  // Từ chối tất cả "Không phù hợp"
   const rejectAllBad = async () => {
     const count = badApps.length;
     if (!count) {
@@ -199,7 +260,9 @@ export default function Applicants() {
     }
 
     alert(
-      `Đã từ chối ${ok} ứng viên.${fail ? ` Có ${fail} ứng viên lỗi, vui lòng thử lại sau.` : ''}`
+      `Đã từ chối ${ok} ứng viên.${
+        fail ? ` Có ${fail} ứng viên lỗi, vui lòng thử lại sau.` : ''
+      }`,
     );
 
     await loadData(idFromRoute);
@@ -208,13 +271,19 @@ export default function Applicants() {
 
   // Rescore tất cả
   const rescoreAll = async () => {
-    if (!window.confirm('Chấm lại điểm tất cả ứng viên của job này?')) return;
+    if (
+      !window.confirm(
+        'Chấm lại điểm TẤT CẢ ứng viên của job này (bỏ qua cache điểm cũ)?',
+      )
+    )
+      return;
 
     try {
       setRescoreAllLoading(true);
+
       await jobService.rescoreJobApplications(idFromRoute, {
-        onlyMissing: true,
-        staleMinutes: 1440,
+        onlyMissing: false,
+        staleMinutes: 0,
       });
 
       alert('Đã gửi yêu cầu. Hệ thống đang chấm điểm, vui lòng đợi khoảng 10 giây...');
@@ -246,24 +315,44 @@ export default function Applicants() {
     <div className="space-y-4">
       {/* Header */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-gray-900">
               {job?.title || 'Quản lý ứng viên'}
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Tổng: {total} ứng viên | AI gợi ý (ứng viên phù hợp vị trí):{' '}
-              {strongApps.length} | Phù hợp (&ge; {THRESHOLD_OK}%): {suitableApps.length} |
-              Không phù hợp: {badApps.length}
+              Tổng: {total} ứng viên | AI gợi ý (ứng viên phù hợp vị trí, &ge;{' '}
+              {strongThreshold}%): {strongApps.length} | Phù hợp (&ge; {THRESHOLD_OK}%):{' '}
+              {suitableApps.length} | Không phù hợp: {badApps.length}
             </p>
-            {/* Dòng mô tả ngắn, không đụng nút Rescore */}
             <p className="text-xs text-gray-400 mt-1">
-              Quy tắc AI: &ge; {THRESHOLD_STRONG}% = AI gợi ý • &ge; {THRESHOLD_OK}% = Phù
-              hợp • &lt; {THRESHOLD_OK}% = Không phù hợp.
+              Điểm dưới 50%: được xem là <strong>Không phù hợp</strong>. Điểm từ 50% trở
+              lên: nằm trong nhóm <strong>Phù hợp</strong>. Thanh bên phải cho phép{' '}
+              <strong>Nhà tuyển dụng</strong> chọn ngưỡng <strong>"AI gợi ý"</strong> (hiện
+              tại là &ge; {strongThreshold}%).
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            {/* Slider ngưỡng AI gợi ý */}
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex items-center gap-2 text-xs text-gray-600">
+                <span>Ngưỡng AI gợi ý:</span>
+                <span className="font-semibold text-blue-600">
+                  &ge; {strongThreshold}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={THRESHOLD_OK}
+                max={100}
+                step={1}
+                value={strongThreshold}
+                onChange={(e) => updateStrongThreshold(e.target.value)}
+                className="w-40 accent-blue-600"
+              />
+            </div>
+
             <button
               onClick={rescoreAll}
               disabled={rescoreAllLoading}
@@ -271,9 +360,7 @@ export default function Applicants() {
               title="Chấm lại điểm tất cả ứng viên"
             >
               <RefreshCw
-                className={`w-4 h-4 ${
-                  rescoreAllLoading ? 'animate-spin' : ''
-                }`}
+                className={`w-4 h-4 ${rescoreAllLoading ? 'animate-spin' : ''}`}
               />
               {rescoreAllLoading ? 'Đang xử lý AI...' : 'Rescore tất cả'}
             </button>
@@ -331,6 +418,7 @@ export default function Applicants() {
               applications={strongApps}
               inviting={inviting}
               onInvite={inviteInterview}
+              strongThreshold={strongThreshold}
             />
           ) : activeTab === 'ok' ? (
             <OkList applications={suitableApps} />
@@ -347,13 +435,15 @@ export default function Applicants() {
   );
 }
 
-// ===== Tab 1: AI GỢI Ý (ỨNG VIÊN PHÙ HỢP VỊ TRÍ) =====
-function StrongList({ applications, inviting, onInvite }) {
+// ===== Tab 1: AI GỢI Ý =====
+function StrongList({ applications, inviting, onInvite, strongThreshold }) {
   if (!applications.length) {
     return (
       <div className="text-center py-12 text-gray-500">
         <div className="text-4xl mb-2">📭</div>
-        <div>Chưa có ứng viên nào đạt ngưỡng AI gợi ý (&ge; {THRESHOLD_STRONG}%).</div>
+        <div>
+          Chưa có ứng viên nào đạt ngưỡng AI gợi ý (&ge; {strongThreshold}%).
+        </div>
       </div>
     );
   }
@@ -404,7 +494,7 @@ function StrongList({ applications, inviting, onInvite }) {
             } phù hợp khoảng ${score}% với vị trí này.`;
 
             const isInvitedOrLater = ['shortlisted', 'interviewed', 'accepted'].includes(
-              app.status
+              app.status,
             );
 
             return (
@@ -510,7 +600,7 @@ function StrongList({ applications, inviting, onInvite }) {
   );
 }
 
-// ===== Tab 2: PHÙ HỢP (TẤT CẢ ứng viên score >= 50), CV BỊ KHÓA =====
+// ===== Tab 2: PHÙ HỢP (>= 50%) =====
 function OkList({ applications }) {
   if (!applications.length) {
     return (
@@ -610,15 +700,14 @@ function OkList({ applications }) {
   );
 }
 
-// ===== Tab 3: KHÔNG PHÙ HỢP (<50%), CV BỊ KHÓA =====
+// ===== Tab 3: KHÔNG PHÙ HỢP (< 50%) =====
 function BadList({ applications, onRejectAll, rejectAllLoading }) {
   if (!applications.length) {
     return (
       <div className="text-center py-12 text-gray-500">
         <div className="text-4xl mb-2">✨</div>
         <div>
-          Không có ứng viên nào bị AI đánh giá là không phù hợp (dưới{' '}
-          {THRESHOLD_OK}%).
+          Không có ứng viên nào bị AI đánh giá là không phù hợp (dưới {THRESHOLD_OK}%).
         </div>
       </div>
     );

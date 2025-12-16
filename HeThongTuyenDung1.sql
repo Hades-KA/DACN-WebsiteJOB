@@ -1,7 +1,7 @@
 /* =====================================================
    HỆ THỐNG TUYỂN DỤNG - DATABASE SCHEMA
-   Phiên bản: 2.3 (AI Scoring + Notifications + Chat realtime + DATETIMEOFFSET fix)
-   DB mặc định: HeThongTuyenDungDB
+   Phiên bản: 2.4 (FIX LỖI NỘP ĐƠN - UPDATED)
+   Nội dung: Full code cũ + Fix lỗi ngày tháng bảng Applications
    ===================================================== */
 
 --------------------------------------------------------
@@ -295,7 +295,7 @@ END
 GO
 
 /* =====================================================
-   4. BẢNG APPLICATIONS
+   4. BẢNG APPLICATIONS (ĐÃ SỬA LỖI)
    ===================================================== */
 IF OBJECT_ID(N'dbo.applications', N'U') IS NULL
 BEGIN
@@ -316,8 +316,11 @@ BEGIN
         [jobId] UNIQUEIDENTIFIER NOT NULL,
         [candidateId] UNIQUEIDENTIFIER NOT NULL,
         [cvId] UNIQUEIDENTIFIER NULL,
-        [createdAt] DATETIME NOT NULL DEFAULT GETDATE(),
-        [updatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+
+        -- [FIX]: Dùng DATETIMEOFFSET để tránh lỗi 500 khi nộp đơn
+        [createdAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+        [updatedAt] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+
         CONSTRAINT [FK_Apps_Job] FOREIGN KEY ([jobId]) 
             REFERENCES [dbo].[jobs]([id]),
         CONSTRAINT [FK_Apps_Candidate] FOREIGN KEY ([candidateId]) 
@@ -714,4 +717,46 @@ END TRY
 BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRAN;
 END CATCH;
+GO
+
+/* =====================================================
+   15. TEAM MIGRATION: AUTO FIX APPLICATIONS TABLE
+   ===================================================== */
+IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'applications'
+      AND COLUMN_NAME = 'createdAt'
+      AND DATA_TYPE = 'datetime'
+)
+BEGIN
+    PRINT '>>> Đang tự động sửa lỗi bảng Applications cho team...';
+    
+    DECLARE @ConstraintName nvarchar(200);
+
+    -- Xóa Default Constraint createdAt
+    SELECT @ConstraintName = Name FROM sys.default_constraints 
+    WHERE parent_object_id = OBJECT_ID('applications') 
+      AND parent_column_id = (SELECT column_id FROM sys.columns WHERE object_id = OBJECT_ID('applications') AND name = 'createdAt');
+    IF @ConstraintName IS NOT NULL EXEC('ALTER TABLE applications DROP CONSTRAINT ' + @ConstraintName);
+
+    -- Xóa Default Constraint updatedAt
+    SELECT @ConstraintName = Name FROM sys.default_constraints 
+    WHERE parent_object_id = OBJECT_ID('applications') 
+      AND parent_column_id = (SELECT column_id FROM sys.columns WHERE object_id = OBJECT_ID('applications') AND name = 'updatedAt');
+    IF @ConstraintName IS NOT NULL EXEC('ALTER TABLE applications DROP CONSTRAINT ' + @ConstraintName);
+
+    -- Đổi kiểu dữ liệu sang DATETIMEOFFSET (Fix lỗi 500)
+    ALTER TABLE [dbo].[applications] ALTER COLUMN [createdAt] DATETIMEOFFSET NOT NULL;
+    ALTER TABLE [dbo].[applications] ALTER COLUMN [updatedAt] DATETIMEOFFSET NOT NULL;
+
+    -- Tạo lại Default Constraint
+    ALTER TABLE [dbo].[applications] ADD DEFAULT SYSDATETIMEOFFSET() FOR [createdAt];
+    ALTER TABLE [dbo].[applications] ADD DEFAULT SYSDATETIMEOFFSET() FOR [updatedAt];
+    
+    PRINT '>>> ✅ Đã Fix xong bảng Applications!';
+END
+ELSE
+BEGIN
+    PRINT '>>> Bảng Applications đã chuẩn DATETIMEOFFSET. Không cần sửa gì.';
+END
 GO

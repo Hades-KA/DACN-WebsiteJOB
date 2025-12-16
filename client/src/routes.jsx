@@ -48,7 +48,7 @@ import EmployerLayout from './components/employer/EmployerLayout';
 import EmployerDashboard from './pages/employer/Dashboard';
 import MyJobs from './pages/employer/MyJobs';
 import Applicants from './pages/employer/Applicants';
-import JobPost from './pages/JobPost';
+// import JobPost from './pages/JobPost';  // <<< ĐÃ XÓA
 import CompanyProfile from './pages/employer/CompanyProfile';
 import EmployerCVs from './pages/employer/CVManagement';
 import EmployerCandidates from './pages/employer/Candidates';
@@ -254,12 +254,18 @@ function Shell() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<EmployerDashboard />} />
             <Route path="jobs" element={<MyJobs />} />
-            <Route path="jobs/new" element={<JobPost />} />
+            {/* Route cũ dùng JobPost: đã bỏ, nếu còn link cũ thì redirect về dashboard */}
+            <Route
+              path="jobs/new"
+              element={<Navigate to="/employer/dashboard" replace />}
+            />
             <Route path="jobs/:jobId/applicants" element={<Applicants />} />
             <Route path="company" element={<CompanyProfile />} />
             <Route
               path="recruitment"
-              element={<div className="p-4">Tuyển dụng (đang phát triển)</div>}
+              element={
+                <div className="p-4">Tuyển dụng (đang phát triển)</div>
+              }
             />
             <Route path="cvs" element={<EmployerCVs />} />
             <Route path="candidates" element={<EmployerCandidates />} />

@@ -1,5 +1,10 @@
 // client/src/pages/employer/Dashboard.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from 'react';
 import {
   FiBriefcase,
   FiUsers,
@@ -29,7 +34,7 @@ import api, {
   applicationService,
   analyticsService,
 } from '../../services/api';
-import { Link } from 'react-router-dom';
+import JobFormModal from '../../components/employer/JobFormModal';
 
 // Theme
 const THEME = {
@@ -43,29 +48,16 @@ const COLORS = [THEME.primary, THEME.success, THEME.warn];
 
 /**
  * Trạng thái ứng tuyển – NHẤN MẠNH AI LÀ THẰNG LÀM VIỆC
- * (có cả rejected, để vẽ luôn trên biểu đồ)
  */
 const STATUS_LABELS = {
-  // Đơn vừa nộp, đã gửi cho AI phân tích
   pending: 'Đã nộp đơn',
-
-  // Giai đoạn AI đang xử lý (nếu có dùng status này)
   reviewing: 'AI phân tích CV',
-
-  // Ứng viên được AI đánh giá cao và NTD đã bấm "Mời phỏng vấn"
   shortlisted: 'AI đề xuất',
-
-  // Đã có lịch phỏng vấn cụ thể
   interviewed: 'Đã có lịch phỏng vấn',
-
-  // Đã nhận
   accepted: 'Đã nhận',
-
-  // Bị từ chối
   rejected: 'Từ chối',
 };
 
-// Thứ tự cột trong biểu đồ trạng thái ứng tuyển (GIỜ CÓ CẢ rejected)
 const STATUS_ORDER = [
   'pending',
   'reviewing',
@@ -96,53 +88,111 @@ const getLocalUser = () => {
 const getEmployerId = (u) =>
   u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
 
+// Ngưỡng AI gợi ý global (được Applicants lưu vào localStorage)
+const GLOBAL_STRONG_THRESHOLD_KEY = 'jobhire_ai_strong_threshold_global';
+const DEFAULT_STRONG_THRESHOLD = 70;
+
+const getGlobalStrongThreshold = () => {
+  try {
+    const v = localStorage.getItem(GLOBAL_STRONG_THRESHOLD_KEY);
+    const num = Number(v);
+    if (Number.isFinite(num) && num >= 50 && num <= 100) return num;
+  } catch {}
+  return DEFAULT_STRONG_THRESHOLD;
+};
+
 export default function EmployerDashboard() {
   const [jobs, setJobs] = useState([]);
-  const [apps, setApps] = useState([]);
+  const [apps, setApps] = useState([]); // đã có aiScore như Applicants
   const [loading, setLoading] = useState(true);
 
   const [lastDays, setLastDays] = useState(28);
   const [trends, setTrends] = useState([]);
   const [trendLoading, setTrendLoading] = useState(false);
 
-  // ===== Load jobs + applications =====
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
+  // Mở/đóng modal đăng tin
+  const [openJobModal, setOpenJobModal] = useState(false);
+
+  // ===== Hàm load jobs + applications + aiScore cho từng application =====
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 1. Lấy user/employerId
+      let u = getLocalUser();
       try {
-        let u = getLocalUser();
-        try {
-          const meRes = await api.get('/auth/me');
-          u = meRes.data?.data || meRes.data?.user || meRes.data || u;
-        } catch {
-          // ignore, dùng local nếu /auth/me lỗi
-        }
-
-        const employerId = getEmployerId(u);
-        if (!employerId) {
-          setJobs([]);
-          setApps([]);
-          return;
-        }
-
-        const [jobsRes, appsRes] = await Promise.all([
-          companyService.getCompanyJobs(employerId, {
-            active: 'all', // lấy tất cả tin: đang mở, đã khóa, hết hạn
-            limit: 500,
-          }),
-          applicationService.getApplications({}),
-        ]);
-
-        setJobs(jobsRes?.data?.data || jobsRes?.data || []);
-        setApps(appsRes?.data?.data || appsRes?.data || []);
-      } finally {
-        setLoading(false);
+        const meRes = await api.get('/auth/me');
+        u = meRes.data?.data || meRes.data?.user || meRes.data || u;
+      } catch {
+        // ignore
       }
-    };
-    load();
+
+      const employerId = getEmployerId(u);
+      if (!employerId) {
+        setJobs([]);
+        setApps([]);
+        return;
+      }
+
+      // 2. Lấy danh sách job của NTD
+      const jobsRes = await companyService.getCompanyJobs(employerId, {
+        active: 'all',
+        limit: 500,
+      });
+      const jobsData = jobsRes?.data?.data || jobsRes?.data || [];
+      setJobs(jobsData);
+
+      if (!jobsData.length) {
+        setApps([]);
+        return;
+      }
+
+      // 3. Lấy applications cho từng job
+      const appsPerJob = await Promise.all(
+        jobsData.map((job) =>
+          applicationService
+            .getJobApplications(job.id, { limit: 1000 })
+            .then((res) => res?.data?.data || res?.data || [])
+            .catch(() => []),
+        ),
+      );
+      const allApps = appsPerJob.flat();
+
+      if (!allApps.length) {
+        setApps([]);
+        return;
+      }
+
+      // 4. Lấy điểm AI cho từng application (giống Applicants)
+      const appsWithScores = await Promise.all(
+        allApps.map(async (app) => {
+          try {
+            const scoreRes = await api.get(`/applications/${app.id}/score`, {
+              params: { _t: Date.now() },
+              headers: { 'Cache-Control': 'no-cache' },
+            });
+            const aiScore = scoreRes.data?.data || scoreRes.data || null;
+            return { ...app, aiScore };
+          } catch (error) {
+            console.warn(
+              `Failed to get score for ${app.id}:`,
+              error?.response?.status || error?.message,
+            );
+            return { ...app, aiScore: null };
+          }
+        }),
+      );
+
+      setApps(appsWithScores);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // ===== Load xu hướng từ analytics =====
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // ===== Load xu hướng từ analytics (giữ nguyên) =====
   useEffect(() => {
     const fetchTrends = async () => {
       setTrendLoading(true);
@@ -161,16 +211,31 @@ export default function EmployerDashboard() {
   // KPI
   const activeJobs = useMemo(
     () => jobs.filter((j) => j.isActive).length,
-    [jobs]
+    [jobs],
   );
   const totalViews = useMemo(
     () => jobs.reduce((s, j) => s + (j.viewsCount || 0), 0),
-    [jobs]
+    [jobs],
   );
-  const newApplicants = useMemo(() => apps.length, [apps]);
+
+  // Số ứng viên duy nhất (unique candidate) – đúng nghiệp vụ
+  const uniqueCandidates = useMemo(() => {
+    const ids = new Set();
+    apps.forEach((a) => {
+      const cid =
+        a.candidateId ??
+        a.candidate?.id ??
+        a.userId ??
+        a.candidate?.userId ??
+        a.candidate?.email; // fallback cuối cùng nếu backend không có id rõ ràng
+      if (cid != null) ids.add(String(cid));
+    });
+    return ids.size;
+  }, [apps]);
+
   const approvedCV = useMemo(
     () => apps.filter((a) => a.status === 'accepted').length,
-    [apps]
+    [apps],
   );
 
   // Xu hướng (đồng nhất Reports)
@@ -181,7 +246,7 @@ export default function EmployerDashboard() {
         applications: toNum(t.applications),
         avgScore: toNum(t.avgScore),
       })),
-    [trends]
+    [trends],
   );
 
   const nowTs = Date.now();
@@ -197,10 +262,6 @@ export default function EmployerDashboard() {
       const isExpired = deadlineTs != null && deadlineTs < nowTs;
       const isActive = !!j.isActive;
 
-      // Quy ước:
-      // - Đang hiển thị: isActive && chưa hết hạn
-      // - Hết hạn: deadline < hiện tại (kể cả bạn tự đóng hay chưa)
-      // - Chờ duyệt: !isActive && chưa hết hạn
       if (isExpired) {
         expired++;
       } else if (isActive) {
@@ -217,18 +278,63 @@ export default function EmployerDashboard() {
     ];
   }, [jobs, nowTs]);
 
-  // Bar: trạng thái ứng tuyển (CÓ cả rejected, label theo AI)
+  // Bar: trạng thái ứng tuyển – tính từ apps + aiScore (KHÔNG dùng analytics)
   const barData = useMemo(() => {
-    const map = Object.fromEntries(STATUS_ORDER.map((k) => [k, 0]));
+    const total = apps.length;
+    const strongThreshold = getGlobalStrongThreshold();
+
+    let reviewing = 0; // AI phân tích CV
+    let shortlisted = 0; // AI đề xuất
+    let interviewed = 0;
+    let accepted = 0;
+    let rejected = 0;
+
     apps.forEach((a) => {
+      const score = Number(a.aiScore?.scoreTotal ?? NaN);
+      if (!Number.isNaN(score)) {
+        reviewing++;
+        if (score >= strongThreshold && score >= 50) {
+          shortlisted++;
+        }
+      }
       const s = String(a.status || '').toLowerCase();
-      if (map[s] !== undefined) map[s] += 1;
+      if (s === 'interviewed') interviewed++;
+      if (s === 'accepted') accepted++;
+      if (s === 'rejected') rejected++;
     });
-    return STATUS_ORDER.map((k) => ({
-      key: k,
-      name: STATUS_LABELS[k],
-      value: map[k] || 0,
-    }));
+
+    return [
+      {
+        key: 'pending',
+        name: STATUS_LABELS.pending,
+        value: total,
+      },
+      {
+        key: 'reviewing',
+        name: STATUS_LABELS.reviewing,
+        value: reviewing,
+      },
+      {
+        key: 'shortlisted',
+        name: STATUS_LABELS.shortlisted,
+        value: shortlisted,
+      },
+      {
+        key: 'interviewed',
+        name: STATUS_LABELS.interviewed,
+        value: interviewed,
+      },
+      {
+        key: 'accepted',
+        name: STATUS_LABELS.accepted,
+        value: accepted,
+      },
+      {
+        key: 'rejected',
+        name: STATUS_LABELS.rejected,
+        value: rejected,
+      },
+    ];
   }, [apps]);
 
   const recentJobs = useMemo(
@@ -236,7 +342,7 @@ export default function EmployerDashboard() {
       [...jobs]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 5),
-    [jobs]
+    [jobs],
   );
 
   if (loading) {
@@ -257,12 +363,13 @@ export default function EmployerDashboard() {
             Thống kê và hoạt động gần đây
           </p>
         </div>
-        <Link
-          to="/employer/jobs/new"
+        <button
+          type="button"
+          onClick={() => setOpenJobModal(true)}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white shadow bg-blue-600 hover:bg-blue-700"
         >
           <FiPlus /> Đăng tin mới
-        </Link>
+        </button>
       </div>
 
       {/* Stat cards */}
@@ -278,8 +385,8 @@ export default function EmployerDashboard() {
           icon={<FiEye className="h-6 w-6" />}
         />
         <StatCard
-          title="Ứng viên mới"
-          value={newApplicants}
+          title="Ứng viên "
+          value={uniqueCandidates}
           icon={<FiUsers className="h-6 w-6" />}
         />
         <StatCard
@@ -291,7 +398,7 @@ export default function EmployerDashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Xu hướng theo ngày: đồng nhất Reports */}
+        {/* Xu hướng theo ngày */}
         <div className="bg-white rounded-lg shadow-sm ring-1 ring-black/5 p-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <div className="font-medium mb-2">
@@ -512,12 +619,24 @@ export default function EmployerDashboard() {
       </div>
 
       {/* FAB */}
-      <Link
-        to="/employer/jobs/new"
+      <button
+        type="button"
+        onClick={() => setOpenJobModal(true)}
         className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-[#6D28D9] hover:bg-[#5B21B6] text-white flex items-center justify-center shadow-lg"
       >
         <FiPlus />
-      </Link>
+      </button>
+
+      {/* Modal tạo/chỉnh sửa tin tuyển dụng */}
+      <JobFormModal
+        open={openJobModal}
+        onClose={() => setOpenJobModal(false)}
+        job={null}
+        onSuccess={() => {
+          setOpenJobModal(false);
+          loadData();
+        }}
+      />
     </div>
   );
 }

@@ -82,7 +82,7 @@ export const jobService = {
   searchJobs: (searchParams) => api.get('/jobs/search', { params: searchParams }),
   getJobsByCompany: (companyId) => api.get(`/jobs/company/${normId(companyId)}`),
   applyJob: (jobId, applicationData) => api.post(`/jobs/${normId(jobId)}/apply`, applicationData),
-  getJobApplications: (jobId) => api.get(`/jobs/${normId(jobId)}/applications`),
+  getJobApplications: (jobId, params = {}) => api.get(`/jobs/${normId(jobId)}/applications`, { params }),
   updateJobStatus: (id, payload) => api.patch(`/jobs/${normId(id)}/status`, payload),
   rescoreJobApplications: (jobId, body = {}) =>
     api.post(`/jobs/${normId(jobId)}/rescore-applications`, body),

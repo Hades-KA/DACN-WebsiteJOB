@@ -1,13 +1,37 @@
+// client/src/pages/employer/Reports.jsx
 import React, { useEffect, useState, useMemo } from 'react';
-import { analyticsService } from '../../services/api';
-import { 
-  TrendingUp, FileText, CheckCircle, Eye, Award, Download, RefreshCw,
-  TrendingDown, AlertCircle
+import api, {
+  analyticsService,
+  companyService,
+  applicationService,
+} from '../../services/api';
+import {
+  TrendingUp,
+  FileText,
+  CheckCircle,
+  Eye,
+  Award,
+  Download,
+  RefreshCw,
+  TrendingDown,
+  AlertCircle,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Area, AreaChart
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  Area,
+  AreaChart,
 } from 'recharts';
 
 /* ============== Helpers ============== */
@@ -29,14 +53,14 @@ const toNumber = (v, d = 0) => {
 
 /* ============== Theme Colors ============== */
 const COLORS = {
-  primary: '#3B82F6',    // blue-500
-  success: '#10B981',    // green-500
-  warning: '#F59E0B',    // amber-500
-  danger: '#EF4444',     // red-500
-  purple: '#8B5CF6',     // violet-500
-  indigo: '#6366F1',     // indigo-500
-  cyan: '#06B6D4',       // cyan-500
-  slate: '#64748B',      // slate-500
+  primary: '#3B82F6', // blue-500
+  success: '#10B981', // green-500
+  warning: '#F59E0B', // amber-500
+  danger: '#EF4444', // red-500
+  purple: '#8B5CF6', // violet-500
+  indigo: '#6366F1', // indigo-500
+  cyan: '#06B6D4', // cyan-500
+  slate: '#64748B', // slate-500
 };
 
 const PIE_COLORS = [
@@ -50,24 +74,48 @@ const PIE_COLORS = [
 
 /* ============== Việt hóa trạng thái ============== */
 const STATUS_VI = {
-  // Đơn vừa nộp, đã được gửi cho AI phân tích gần như ngay lập tức
   pending: 'Đã nộp đơn',
-
-  // Giai đoạn AI đang thực sự chạy mô hình (nếu bạn có dùng status này)
   reviewing: 'AI phân tích CV',
-
-  // Ứng viên mà AI đánh giá cao và NTD đã bấm "Mời phỏng vấn"
-  shortlisted: 'AI đề xuất ',
-
-  // Đã có lịch phỏng vấn cụ thể (tạo ở màn Quản lý ứng viên)
+  shortlisted: 'AI đề xuất',
   interviewed: 'Đã có lịch phỏng vấn',
-
-  // Đã được nhận
   accepted: 'Đã nhận',
-
-  // Đã bị từ chối
   rejected: 'Từ chối',
 };
+
+// Thứ tự pipeline dùng chung Dashboard + Reports
+const STATUS_KEYS = [
+  'pending',
+  'reviewing',
+  'shortlisted',
+  'interviewed',
+  'accepted',
+  'rejected',
+];
+
+/* ============== Ngưỡng AI gợi ý dùng chung (đọc từ localStorage) ============== */
+const GLOBAL_STRONG_THRESHOLD_KEY = 'jobhire_ai_strong_threshold_global';
+const DEFAULT_STRONG_THRESHOLD = 70;
+
+const getGlobalStrongThreshold = () => {
+  try {
+    const v = localStorage.getItem(GLOBAL_STRONG_THRESHOLD_KEY);
+    const num = Number(v);
+    if (Number.isFinite(num) && num >= 50 && num <= 100) return num;
+  } catch {}
+  return DEFAULT_STRONG_THRESHOLD;
+};
+
+/* ============== Lấy employerId từ localStorage + /auth/me (giống Dashboard) ============== */
+const getLocalUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    return null;
+  }
+};
+
+const getEmployerId = (u) =>
+  u?.id || u?.userId || getLocalUser()?.id || getLocalUser()?.userId;
 
 /* ============== Components ============== */
 const StatCard = ({ icon: Icon, label, value, subValue, trend, color = 'blue' }) => {
@@ -175,28 +223,88 @@ export default function Reports() {
   const [trends, setTrends] = useState([]);
   const [topJobs, setTopJobs] = useState([]);
 
+  // Đồng bộ với Dashboard: danh sách application + aiScore
+  const [apps, setApps] = useState([]);
+
   const loadData = async () => {
     setLoading(true);
     setError('');
 
     try {
-      const [overviewRes, aiPerfRes, funnelRes, trendsRes, topJobsRes] = await Promise.all([
-        analyticsService.getOverview(),
-        analyticsService.getAIPerformance(),
-        analyticsService.getFunnel(),
-        analyticsService.getTrends({ days: 28 }),
-        analyticsService.getTopJobs(),
-      ]);
+      // 1) Analytics
+      const [overviewRes, aiPerfRes, funnelRes, trendsRes, topJobsRes] =
+        await Promise.all([
+          analyticsService.getOverview(),
+          analyticsService.getAIPerformance(),
+          analyticsService.getFunnel(),
+          analyticsService.getTrends({ days: 28 }),
+          analyticsService.getTopJobs(),
+        ]);
 
-      setOverview(overviewRes.data?.data || null);
-      setAiPerformance(aiPerfRes.data?.data || null);
-      setFunnel(funnelRes.data?.data || []);
-      setTrends(trendsRes.data?.data || []);
-      setTopJobs(topJobsRes.data?.data || []);
+      setOverview(overviewRes.data?.data || overviewRes.data || null);
+      setAiPerformance(aiPerfRes.data?.data || aiPerfRes.data || null);
+      setFunnel(funnelRes.data?.data || funnelRes.data || []);
+      setTrends(trendsRes.data?.data || trendsRes.data || []);
+      setTopJobs(topJobsRes.data?.data || topJobsRes.data || []);
+
+      // 2) Load toàn bộ job + applications + aiScore (giống Dashboard)
+      let u = getLocalUser();
+      try {
+        const meRes = await api.get('/auth/me');
+        u = meRes.data?.data || meRes.data?.user || meRes.data || u;
+      } catch {}
+
+      const employerId = getEmployerId(u);
+      if (!employerId) {
+        setApps([]);
+      } else {
+        const jobsRes = await companyService.getCompanyJobs(employerId, {
+          active: 'all',
+          limit: 500,
+        });
+        const jobsData = jobsRes?.data?.data || jobsRes?.data || [];
+
+        if (!jobsData.length) {
+          setApps([]);
+        } else {
+          const appsPerJob = await Promise.all(
+            jobsData.map((job) =>
+              applicationService
+                .getJobApplications(job.id, { limit: 1000 })
+                .then((res) => res?.data?.data || res?.data || [])
+                .catch(() => []),
+            ),
+          );
+
+          const allApps = appsPerJob.flat();
+
+          if (!allApps.length) {
+            setApps([]);
+          } else {
+            const appsWithScores = await Promise.all(
+              allApps.map(async (app) => {
+                try {
+                  const scoreRes = await api.get(`/applications/${app.id}/score`, {
+                    params: { _t: Date.now() },
+                    headers: { 'Cache-Control': 'no-cache' },
+                  });
+                  const aiScore = scoreRes.data?.data || scoreRes.data || null;
+                  return { ...app, aiScore };
+                } catch {
+                  return { ...app, aiScore: null };
+                }
+              }),
+            );
+            setApps(appsWithScores);
+          }
+        }
+      }
     } catch (e) {
       console.error('Load analytics error:', e);
       setError(
-        e.response?.data?.message || e.message || 'Không thể tải dữ liệu báo cáo. Vui lòng thử lại.'
+        e.response?.data?.message ||
+          e.message ||
+          'Không thể tải dữ liệu báo cáo. Vui lòng thử lại.',
       );
     } finally {
       setLoading(false);
@@ -207,29 +315,75 @@ export default function Reports() {
     loadData();
   }, []);
 
-  // Sanitize trends (đảm bảo number)
-  const trendsSafe = useMemo(() => {
-    return (trends || []).map((t) => ({
-      month: t.month,
-      applications: toNumber(t.applications),
-      avgScore: toNumber(t.avgScore),
-    }));
-  }, [trends]);
+  // Sanitize trends
+  const trendsSafe = useMemo(
+    () =>
+      (trends || []).map((t) => ({
+        month: t.month,
+        applications: toNumber(t.applications),
+        avgScore: toNumber(t.avgScore),
+      })),
+    [trends],
+  );
 
   const hasTrends = trendsSafe && trendsSafe.length > 0;
 
-  // Phân bổ trạng thái (Pie) – Việt hóa nhãn
-  const statusDistribution = useMemo(() => {
-    if (!overview?.statusCounts) return [];
-    return Object.entries(overview.statusCounts)
-      .filter(([_, value]) => toNumber(value) > 0)
-      .map(([key, value]) => ({
-        name: STATUS_VI[key] || key,
-        value: toNumber(value),
-      }));
-  }, [overview]);
+  /* ===== Pipeline từ apps (giống Dashboard) ===== */
+  const aiPipelineCounts = useMemo(() => {
+    const total = apps.length;
+    if (!total) {
+      return {
+        pending: 0,
+        reviewing: 0,
+        shortlisted: 0,
+        interviewed: 0,
+        accepted: 0,
+        rejected: 0,
+      };
+    }
 
-  // Phân bố điểm AI
+    const strongThreshold = getGlobalStrongThreshold();
+    let reviewing = 0;
+    let shortlisted = 0;
+    let interviewed = 0;
+    let accepted = 0;
+    let rejected = 0;
+
+    apps.forEach((a) => {
+      const score = Number(a.aiScore?.scoreTotal ?? NaN);
+      if (!Number.isNaN(score)) {
+        reviewing++;
+        if (score >= strongThreshold && score >= 50) {
+          shortlisted++;
+        }
+      }
+
+      const s = String(a.status || '').toLowerCase();
+      if (s === 'interviewed') interviewed++;
+      if (s === 'accepted') accepted++;
+      if (s === 'rejected') rejected++;
+    });
+
+    return {
+      pending: total,
+      reviewing,
+      shortlisted,
+      interviewed,
+      accepted,
+      rejected,
+    };
+  }, [apps]);
+
+  // Phân bố trạng thái (Pie) – dùng pipeline trên
+  const statusDistribution = useMemo(() => {
+    if (!aiPipelineCounts) return [];
+    return STATUS_KEYS.map((key) => ({
+      name: STATUS_VI[key] || key,
+      value: toNumber(aiPipelineCounts[key]),
+    })).filter((item) => item.value > 0);
+  }, [aiPipelineCounts]);
+
+  // Phân bố điểm AI (vẫn dùng analytics)
   const scoreDistribution = useMemo(() => {
     const r = overview?.aiMetrics?.scoreRanges;
     if (!r) return [];
@@ -242,68 +396,90 @@ export default function Reports() {
     return data.filter((item) => item.value > 0);
   }, [overview]);
 
-  /* ============== Phễu tuyển dụng + Từ chối ============== */
+  /* ============== Phễu tuyển dụng (chỉ hiển thị Số lượng) ============== */
   const funnelWithRates = useMemo(() => {
-    const stages = [];
+    const stageMap = new Map();
 
-    // Nếu API funnel có dữ liệu
-    if (funnel.length) {
-      const total = toNumber(funnel[0]?.count) || 1;
-
+    // 1) Dữ liệu funnel từ backend (nếu có)
+    if (funnel && funnel.length) {
       funnel.forEach((stage) => {
+        const status = stage.status;
         const count = toNumber(stage.count);
-        const avgDays = toNumber(stage.avgDays);
+        const avgDays = toNumber(stage.avgDays); // vẫn giữ nếu sau này cần
 
-        stages.push({
-          ...stage,
+        stageMap.set(status, {
+          status,
           count,
           avgDays,
-          statusLabel: STATUS_VI[stage.status] || stage.status,
-          rate: ((count / total) * 100).toFixed(1),
+          statusLabel: STATUS_VI[status] || status,
         });
       });
-
-      // Nếu có số lượng rejected trong overview nhưng chưa có stage rejected trong funnel
-      const rejectedCount = toNumber(overview?.statusCounts?.rejected);
-      const hasRejectedInFunnel = stages.some((s) => s.status === 'rejected');
-
-      if (rejectedCount > 0 && !hasRejectedInFunnel) {
-        stages.push({
-          status: 'rejected',
-          count: rejectedCount,
-          avgDays: 0,
-          statusLabel: STATUS_VI.rejected,
-          rate: ((rejectedCount / total) * 100).toFixed(1),
-        });
-      }
-
-      return stages;
     }
 
-    // Fallback: không có funnel, dựng từ overview.statusCounts
-    const counts = overview?.statusCounts || {};
-    const totalApps = toNumber(overview?.totalApplications) || 1;
-
-    Object.entries(counts).forEach(([status, countRaw]) => {
-      const count = toNumber(countRaw);
-      stages.push({
-        status,
-        count,
-        avgDays: 0,
-        statusLabel: STATUS_VI[status] || status,
-        rate: ((count / totalApps) * 100).toFixed(1),
+    // 2) Fallback: nếu không có funnel, nhưng có apps
+    if (!stageMap.size && apps.length) {
+      Object.entries(aiPipelineCounts || {}).forEach(([status, count]) => {
+        stageMap.set(status, {
+          status,
+          count: toNumber(count),
+          avgDays: 0,
+          statusLabel: STATUS_VI[status] || status,
+        });
       });
+    }
+
+    // 3) Ghi đè / thêm các stage AI từ aiPipelineCounts (đảm bảo giống Dashboard)
+    if (aiPipelineCounts) {
+      Object.entries(aiPipelineCounts).forEach(([status, raw]) => {
+        const count = toNumber(raw);
+        if (!count) return;
+
+        const existed = stageMap.get(status);
+        if (existed) {
+          existed.count = Math.max(toNumber(existed.count), count);
+        } else {
+          stageMap.set(status, {
+            status,
+            count,
+            avgDays: 0,
+            statusLabel: STATUS_VI[status] || status,
+          });
+        }
+      });
+    }
+
+    const stages = Array.from(stageMap.values());
+    if (!stages.length) return [];
+
+    // 4) Sắp xếp theo thứ tự pipeline chuẩn
+    stages.sort((a, b) => {
+      const ia = STATUS_KEYS.indexOf(a.status);
+      const ib = STATUS_KEYS.indexOf(b.status);
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
     });
 
-    return stages;
-  }, [funnel, overview]);
+    // 5) Tính tỷ lệ giữ lại theo tổng số đơn
+    const totalApps =
+      toNumber(aiPipelineCounts?.pending) ||
+      toNumber(overview?.totalApplications) ||
+      toNumber(stages[0].count) ||
+      1;
 
-  // Xác định max cho trục X biểu đồ phễu để không dư khoảng trắng
+    return stages.map((s) => ({
+      ...s,
+      rate: ((toNumber(s.count) / totalApps) * 100).toFixed(1),
+    }));
+  }, [funnel, overview, aiPipelineCounts, apps.length]);
+
+  // Xác định max cho trục X biểu đồ phễu (chỉ theo count)
   const funnelXMax = useMemo(() => {
     if (!funnelWithRates.length) return 1;
     let max = 0;
     for (const s of funnelWithRates) {
-      max = Math.max(max, toNumber(s.count), toNumber(s.avgDays));
+      max = Math.max(max, toNumber(s.count));
     }
     return Math.max(1, max);
   }, [funnelWithRates]);
@@ -335,7 +511,9 @@ export default function Reports() {
       trends,
       topJobs,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -501,7 +679,7 @@ export default function Reports() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Phân bố trạng thái">
+        <SectionCard title="Phân bố trạng thái (pipeline AI + tuyển dụng)">
           <div className="h-80">
             {statusDistribution.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -510,13 +688,11 @@ export default function Reports() {
                     data={statusDistribution}
                     cx="50%"
                     cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
                     outerRadius={90}
                     fill="#8884d8"
                     dataKey="value"
+                    labelLine={false}
+                    label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
                   >
                     {statusDistribution.map((_, index) => (
                       <Cell
@@ -525,6 +701,7 @@ export default function Reports() {
                       />
                     ))}
                   </Pie>
+                  <Legend />
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
@@ -633,16 +810,10 @@ export default function Reports() {
               <YAxis type="category" dataKey="statusLabel" width={160} />
               <Tooltip
                 labelFormatter={(label) => `Giai đoạn: ${label}`}
-                formatter={(value, name) => {
-                  if (name === 'count') return [value, 'Số lượng'];
-                  if (name === 'avgDays') return [value + ' ngày', 'Thời gian TB'];
-                  if (name === 'rate') return [value + '%', 'Tỷ lệ'];
-                  return [value, name];
-                }}
+                formatter={(value) => [value, 'Số lượng']}
               />
               <Legend />
               <Bar dataKey="count" fill={COLORS.primary} name="Số lượng" />
-              <Bar dataKey="avgDays" fill={COLORS.warning} name="Thời gian TB (ngày)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
