@@ -318,13 +318,19 @@ cd client && npm run build
 cd server && npm start
 ```
 
-## 📝 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## 🙏 Acknowledgments
-
 - React 
 - Node.js 
 - AI/ML từ đồ án cơ sở
 
+------------------------------------------------
+hướng dẫn chi tiết thiết lập tài khoản sa 
+
+bước 1 : vô sql sever vô chế độ Windows Authentication
+bước 2 : click chuột phải tên sever máy chọn Properties , trong Properties chọn Security dòng mục đầu tiên trong Server authentication
+Windows Authentication mode
+SQL Server and Windows Authentication mode ( chọn cái này )
+bước 3 : kiếm SQL Server Management Studio Win + R gõ lệnh SQLServerManager16.msc (tùy phiên bản kiểm tra bằng câu lệnh " SELECT @@version; ")
+bước 4 : Trong SQL Server Management Studio vô mục sql sever services thấy dòng đầu tiên đang chạy hãy reset lại nó
+bước 5 : Quay lại SQL sever vô thư mục có tên là security chọn mục logins sẽ thấy sa ở cuối cùng chuột phải chọn Properties trong Login Properties-sa mục General thấy password đổi lại pass là : 12345@Aa , vô mục status có dòng login : chọn Enabled , ấn OK refresh lại sa là nó mất màu đỏ
+bước 6 : đăng nhập lại login sa
+bước 7 : Quay lại SQL Server Configuration Manager vô SQL Server Network Configuration vô Protocols for MSSQLSERVER bật chuột phải TCP/IP chọn Enabled
