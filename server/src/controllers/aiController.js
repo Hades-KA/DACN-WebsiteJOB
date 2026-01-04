@@ -3,6 +3,8 @@ const { Application, Job, User, CV } = require('../models');
 const { getLatestScore, scoreApplicationNow } = require('../services/scoreService');
 const { scoreMatch } = require('../services/aiClient');
 
+// ================= Helpers =================
+
 // Ép về mảng an toàn
 function asList(x) {
   if (!x) return [];
@@ -15,6 +17,27 @@ function asList(x) {
   }
 }
 
+// Chạy async theo lô, giới hạn concurrency (để không gọi AI 50 request cùng lúc)
+async function mapLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let idx = 0;
+
+  const workers = Array.from({ length: Math.max(1, limit) }, async () => {
+    while (true) {
+      const cur = idx++;
+      if (cur >= items.length) break;
+      try {
+        results[cur] = await mapper(items[cur], cur);
+      } catch (e) {
+        results[cur] = null;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 // Tạo câu giải thích cho NTD
 function buildExplanationForEmployer(app, job, aiScore) {
   const name = app.candidate?.name || 'ứng viên';
@@ -24,14 +47,12 @@ function buildExplanationForEmployer(app, job, aiScore) {
   const missing = asList(aiScore.missingMustHave || aiScore.missingSkills);
 
   let msg = `AI đề xuất ${name} cho vị trí "${title}" với độ phù hợp ${score}%.`;
-  if (matched.length) {
-    msg += ` Ứng viên có các kỹ năng: ${matched.join(', ')}.`;
-  }
-  if (missing.length) {
-    msg += ` Còn thiếu: ${missing.join(', ')}.`;
-  }
+  if (matched.length) msg += ` Ứng viên có các kỹ năng: ${matched.join(', ')}.`;
+  if (missing.length) msg += ` Còn thiếu: ${missing.join(', ')}.`;
   return msg;
 }
+
+// ================== API 1: NTD gợi ý ứng viên ==================
 
 /**
  * GET /api/ai/candidate-recommendations/:jobId
@@ -40,13 +61,12 @@ function buildExplanationForEmployer(app, job, aiScore) {
 async function getCandidateRecommendationsForJob(req, res) {
   try {
     const { jobId } = req.params;
-    const threshold = Number(req.query.threshold || 60); // ngưỡng đề xuất
-    const user = req.user; // từ middleware auth
+    const threshold = Number(req.query.threshold || 60);
+    const user = req.user;
 
     const job = await Job.findByPk(jobId);
     if (!job) return res.status(404).json({ message: 'Job not found' });
 
-    // Chỉ employer sở hữu job hoặc admin được xem
     if (user.userType !== 'admin' && user.userId !== job.employerId) {
       return res.status(403).json({ message: 'Forbidden: not your job' });
     }
@@ -58,20 +78,9 @@ async function getCandidateRecommendationsForJob(req, res) {
           model: User,
           as: 'candidate',
           attributes: [
-            'id',
-            'name',
-            'email',
-            'phone',
-            'location',
-            'position',
-            'level',
-            'workType',
-            'experienceBand',
-            'expectedSalary',
-            'skills',
-            'avatar',
-            'cvUrl',
-            'cvName',
+            'id', 'name', 'email', 'phone', 'location', 'position', 'level',
+            'workType', 'experienceBand', 'expectedSalary', 'skills', 'avatar',
+            'cvUrl', 'cvName',
           ],
           required: false,
         },
@@ -89,11 +98,8 @@ async function getCandidateRecommendationsForJob(req, res) {
     const others = [];
 
     for (const app of apps) {
-      // Lấy score mới nhất; nếu chưa có thì chấm ngay
       let scoreDoc = await getLatestScore(app.id);
-      if (!scoreDoc) {
-        scoreDoc = await scoreApplicationNow(app.id);
-      }
+      if (!scoreDoc) scoreDoc = await scoreApplicationNow(app.id);
 
       const aiScore = {
         scoreTotal: Number(scoreDoc?.scoreTotal || 0),
@@ -101,21 +107,12 @@ async function getCandidateRecommendationsForJob(req, res) {
         missingMustHave: asList(scoreDoc?.missingMustHave),
       };
 
-      // Chọn CV hiển thị
       let cv = app.cv || null;
       if (!cv && app.cvFilePath) {
-        cv = {
-          id: null,
-          fileName: app.cvName || 'CV.pdf',
-          filePath: app.cvFilePath,
-        };
+        cv = { id: null, fileName: app.cvName || 'CV.pdf', filePath: app.cvFilePath };
       }
       if (!cv && app.candidate?.cvUrl) {
-        cv = {
-          id: null,
-          fileName: app.candidate.cvName || 'CV.pdf',
-          filePath: app.candidate.cvUrl,
-        };
+        cv = { id: null, fileName: app.candidate.cvName || 'CV.pdf', filePath: app.candidate.cvUrl };
       }
 
       const base = {
@@ -126,18 +123,15 @@ async function getCandidateRecommendationsForJob(req, res) {
         cv,
         aiScore,
         explanation: buildExplanationForEmployer(app, job, aiScore),
-        recommended: false, // set bên dưới
+        recommended: false,
       };
 
-      const locked = ['shortlisted', 'interviewed', 'accepted', 'rejected'].includes(
-        app.status
-      );
+      const locked = ['shortlisted', 'interviewed', 'accepted', 'rejected'].includes(app.status);
 
       if (!locked && aiScore.scoreTotal >= threshold) {
         base.recommended = true;
         recommended.push(base);
       } else {
-        base.recommended = false;
         others.push(base);
       }
     }
@@ -145,11 +139,7 @@ async function getCandidateRecommendationsForJob(req, res) {
     return res.json({
       message: 'AI candidate recommendations for job',
       data: {
-        job: {
-          id: job.id,
-          title: job.title,
-          company: job.company,
-        },
+        job: { id: job.id, title: job.title, company: job.company },
         threshold,
         recommended,
         others,
@@ -161,18 +151,24 @@ async function getCandidateRecommendationsForJob(req, res) {
   }
 }
 
+// ================== API 2: Ứng viên gợi ý job ==================
+
 /**
  * GET /api/ai/job-recommendations/:candidateId
  * → AI gợi ý danh sách Job phù hợp cho Ứng viên (dựa trên CV)
- *   - BỎ QUA những job đã đủ số lượng cần tuyển
  */
 async function getJobRecommendationsForCandidate(req, res) {
   try {
     const { candidateId } = req.params;
     const user = req.user;
-    const threshold = Number(req.query.threshold || 60); // ngưỡng để coi là phù hợp
 
-    // Chỉ chính ứng viên đó hoặc admin được gọi
+    // threshold để coi là phù hợp (FE đang truyền threshold=60)
+    const threshold = Number(req.query.threshold || 60);
+
+    // Các tham số tối ưu (có thể chỉnh trong .env nếu muốn)
+    const MAX_JOBS_TO_SCORE = Number(process.env.AI_RECO_MAX_JOBS || 15); // giảm từ 50 xuống 15
+    const CONCURRENCY = Number(process.env.AI_RECO_CONCURRENCY || 3);     // chấm song song 3 job
+
     if (user.userType !== 'admin' && user.userId !== candidateId) {
       return res.status(403).json({ message: 'Forbidden' });
     }
@@ -187,10 +183,10 @@ async function getJobRecommendationsForCandidate(req, res) {
       });
     }
 
-    // Lấy job + kèm employer để có logo công ty
+    // Lấy job mới nhất, nhưng giảm limit để tránh timeout
     const jobs = await Job.findAll({
       where: { isActive: true },
-      limit: 50,
+      limit: MAX_JOBS_TO_SCORE,
       order: [['createdAt', 'DESC']],
       include: [
         {
@@ -202,11 +198,9 @@ async function getJobRecommendationsForCandidate(req, res) {
       ],
     });
 
-    const results = [];
-
-    for (const job of jobs) {
-      // ===== 1. CHECK JOB ĐÃ ĐỦ SLOT CHƯA? =====
-      // Cố gắng lấy số lượng cần tuyển từ nhiều field tên khác nhau để an toàn
+    // Mapper chấm 1 job, lỗi thì return null (không fail toàn request)
+    const scored = await mapLimit(jobs, CONCURRENCY, async (job) => {
+      // 1) Bỏ job đủ headcount
       const rawQuantity =
         job.quantity ||
         job.numberOfPositions ||
@@ -221,46 +215,42 @@ async function getJobRecommendationsForCandidate(req, res) {
         const acceptedCount = await Application.count({
           where: { jobId: job.id, status: 'accepted' },
         });
-        if (acceptedCount >= quantity) {
-          // ĐÃ ĐỦ SỐ LƯỢNG -> KHÔNG GỢI Ý JOB NÀY CHO ỨNG VIÊN
-          continue;
-        }
+        if (acceptedCount >= quantity) return null;
       }
 
-      // ===== 2. TÍNH ĐIỂM PHÙ HỢP BẰNG AI =====
+      // 2) Bỏ job thiếu mustHaveSkills
       const must = asList(job.mustHaveSkills);
       const nice = asList(job.niceToHaveSkills);
       const jdText =
         job.jdText ||
         [job.title, job.description, job.requirements].filter(Boolean).join('\n\n');
 
-      if (!jdText || must.length === 0) continue;
+      if (!jdText || must.length === 0) return null;
 
-      // Gọi AI service để chấm điểm CV ứng viên với JD này
-      const ai = await scoreMatch({
-        job_id: job.id,
-        application_id: null,
-        jd_text: jdText,
-        must_have_skills: must,
-        nice_to_have_skills: nice,
-        resume_url: resumeUrl,
-        lang_hint: 'vi',
-      });
+      // 3) Gọi AI service
+      let ai;
+      try {
+        ai = await scoreMatch({
+          job_id: job.id,
+          application_id: null,
+          jd_text: jdText,
+          must_have_skills: must,
+          nice_to_have_skills: nice,
+          resume_url: resumeUrl,
+          lang_hint: 'vi',
+        });
+      } catch (e) {
+        console.warn('[AI RECO] scoreMatch failed job=', job.id, e?.message || e);
+        return null;
+      }
 
       const score = Number(ai?.score_total || 0);
-      if (score < threshold) continue;
+      if (score < threshold) return null;
 
       const matched = asList(ai.matched_skills || ai.matchedSkills);
-      const missing = asList(
-        ai.missing_must_have || ai.missingMustHave || ai.missing_skills
-      );
+      const missing = asList(ai.missing_must_have || ai.missingMustHave || ai.missing_skills);
 
-      // Chuẩn hóa company + logo giống front-end
-      const companyName =
-        job.company ||
-        job.employer?.company ||
-        'Công ty ẩn danh';
-
+      const companyName = job.company || job.employer?.company || 'Công ty ẩn danh';
       const companyLogo =
         job.companyLogo ||
         job.logoUrl ||
@@ -270,7 +260,7 @@ async function getJobRecommendationsForCandidate(req, res) {
         job.employer?.logoUrl ||
         null;
 
-      results.push({
+      return {
         job: {
           id: job.id,
           title: job.title,
@@ -278,7 +268,7 @@ async function getJobRecommendationsForCandidate(req, res) {
           companyLogo,
           location: job.location,
           salary: job.salary || job.salaryBand || 'Thoả thuận',
-          createdAt: job.createdAt, // gửi ngày đăng job sang FE
+          createdAt: job.createdAt,
         },
         scoreTotal: score,
         matchedSkills: matched,
@@ -286,15 +276,23 @@ async function getJobRecommendationsForCandidate(req, res) {
         explanation: `Công việc "${job.title}" phù hợp khoảng ${score}% với bạn. Kỹ năng khớp: ${
           matched.join(', ') || '—'
         }. Thiếu: ${missing.join(', ') || '—'}.`,
-      });
-    }
+      };
+    });
 
-    // Sắp xếp theo điểm giảm dần và giới hạn TOP 8
+    const results = (scored || []).filter(Boolean);
+
+    // Sort theo score giảm dần và lấy TOP 8
     results.sort((a, b) => b.scoreTotal - a.scoreTotal);
     const limited = results.slice(0, 8);
 
     return res.json({
       message: 'AI job recommendations for candidate',
+      meta: {
+        threshold,
+        maxJobsScored: MAX_JOBS_TO_SCORE,
+        concurrency: CONCURRENCY,
+        totalReturned: limited.length,
+      },
       data: limited,
     });
   } catch (err) {

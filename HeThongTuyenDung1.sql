@@ -404,7 +404,7 @@ BEGIN
         CONSTRAINT [FK_SavedJobs_User] FOREIGN KEY ([userId]) 
             REFERENCES [dbo].[users]([id]) ON DELETE CASCADE,
         CONSTRAINT [FK_SavedJobs_Job] FOREIGN KEY ([jobId]) 
-            REFERENCES [dbo].[jobs]([id]) ON DELETE CASCADE,
+            REFERENCES [dbo].[jobs]([id]) ON DELETE NO ACTION,
         CONSTRAINT [UQ_SavedJobs] UNIQUE ([userId],[jobId])
     );
 END
@@ -471,7 +471,7 @@ BEGIN
         CONSTRAINT [FK_Noti_User] FOREIGN KEY ([userId]) 
             REFERENCES [dbo].[users]([id]) ON DELETE CASCADE,
         CONSTRAINT [FK_Noti_Job] FOREIGN KEY ([jobId]) 
-            REFERENCES [dbo].[jobs]([id]) ON DELETE SET NULL
+            REFERENCES [dbo].[jobs]([id]) ON DELETE NO ACTION
     );
     CREATE INDEX [IDX_Noti_UserId]   ON dbo.notifications([userId]);
     CREATE INDEX [IDX_Noti_IsRead]   ON dbo.notifications([isRead]);
@@ -691,7 +691,7 @@ GO
    14. TÀI KHOẢN ADMIN MẶC ĐỊNH
    ===================================================== */
 DECLARE @AdminEmail NVARCHAR(255) = N'admin@jobhire.local';
-DECLARE @AdminPassword NVARCHAR(255) = N'Admin@123';
+DECLARE @AdminPassword NVARCHAR(255) = N'$2a$12$OVWcXGumoY9TVuff9tp5d.ab3ptNm.KiUrpZ5QfYpZ4bCMz8MnZ/q';
 
 BEGIN TRY
     BEGIN TRAN;

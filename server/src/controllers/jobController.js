@@ -68,6 +68,7 @@ async function getAllJobs(req, res) {
       posted,
       featured,
       exclude,
+      includeExpired,
       page = 1,
       limit = 20,
       sort = 'newest',
@@ -81,6 +82,18 @@ async function getAllJobs(req, res) {
     // Chỉ trả job đang active cho phía public (ứng viên)
     const whereClause = { isActive: true };
     const and = [];
+
+    if (
+      hasAttr('deadline') &&
+      String(includeExpired || '').toLowerCase() !== 'true'
+    ) {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      and.push({
+        [Op.or]: [{ deadline: null }, { deadline: { [Op.gte]: todayStr } }],
+      });
+    }
 
     const q = (search || title || '').trim();
     if (q) {

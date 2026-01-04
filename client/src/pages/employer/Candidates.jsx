@@ -1449,7 +1449,7 @@ const AcceptedListTab = () => {
                             Trúng tuyển
                           </button>
 
-                          {/* Hủy (từ chối luôn) */}
+                          {/* Hủy (back up lại) */}
                           <button
                             onClick={() => handleCancel(it)}
                             disabled={cancelLoadingId === it.id}
@@ -1676,7 +1676,7 @@ function CandidatesContent() {
           Quản lý ứng viên
         </div>
         <div className="text-sm text-slate-500 mt-1">
-          Logic: Hiển thị những ứng viên bạn đã mời (shortlisted), đã có lịch phỏng vấn (interviewed) và đã nhận (accepted).
+          Hiển thị những ứng viên bạn đã mời (shortlisted), đã có lịch phỏng vấn (interviewed) và đã nhận (accepted).
         </div>
       </div>
       <Tabs active={active} onChange={setActive} />

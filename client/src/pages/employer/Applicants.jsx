@@ -1,8 +1,15 @@
 // client/src/pages/employer/Applicants.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api, { applicationService, jobService } from '../../services/api';
-import { Download, RefreshCw, Mail, Phone, XCircle, CheckCircle } from 'lucide-react';
+import {
+  Download,
+  RefreshCw,
+  Mail,
+  Phone,
+  XCircle,
+  CheckCircle,
+} from 'lucide-react';
 
 function normalizeId(p) {
   return decodeURIComponent(String(p ?? '').trim());
@@ -48,37 +55,16 @@ const SkillChip = ({ label, tone = 'green' }) => {
   );
 };
 
-// ===== Helper: thời gian phỏng vấn (hiện không dùng nhưng giữ lại nếu sau này cần) =====
-const pad2 = (n) => String(n).padStart(2, '0');
-function buildISOWithTZ(dateStr, timeStr) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))) return '';
-  if (!/^\d{2}:\d{2}$/.test(String(timeStr || ''))) return '';
-  const [hh, mm] = timeStr.split(':').map((v) => Number(v));
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return '';
-  const tzMinOffset = -new Date().getTimezoneOffset();
-  const sign = tzMinOffset >= 0 ? '+' : '-';
-  const abs = Math.abs(tzMinOffset);
-  const tzH = pad2(Math.floor(abs / 60));
-  const tzM = pad2(abs % 60);
-  return `${dateStr}T${pad2(hh)}:${pad2(mm)}:00${sign}${tzH}:${tzM}`;
-}
-
 // ===== Ngưỡng AI =====
-const THRESHOLD_OK = 50; // Phù hợp: >= 50%
-const DEFAULT_STRONG_THRESHOLD = 70;
+// Dưới 50%: Không phù hợp
+// Từ 50% trở lên: Phù hợp
+const THRESHOLD_OK = 50;
 
-// Khóa lưu ngưỡng AI gợi ý
-const STRONG_THRESHOLD_KEY_PREFIX = 'jobhire_ai_strong_threshold_job_';
-const GLOBAL_STRONG_THRESHOLD_KEY = 'jobhire_ai_strong_threshold_global';
-
-const getGlobalStrongThreshold = () => {
-  try {
-    const v = localStorage.getItem(GLOBAL_STRONG_THRESHOLD_KEY);
-    const num = Number(v);
-    if (Number.isFinite(num) && num >= THRESHOLD_OK && num <= 100) return num;
-  } catch {}
-  return DEFAULT_STRONG_THRESHOLD;
-};
+// ===== Shortlist theo headcount =====
+// Default nếu job chưa nhập headcount
+const DEFAULT_TOP_K = 5;
+// Dự phòng (để nếu top K không phản hồi thì có người thay)
+const DEFAULT_BACKUP = 10;
 
 export default function Applicants() {
   const { id: idParam, jobId: jobIdParam } = useParams();
@@ -92,36 +78,10 @@ export default function Applicants() {
   const [rescoreAllLoading, setRescoreAllLoading] = useState(false);
   const [rejectAllLoading, setRejectAllLoading] = useState(false);
 
-  // Ngưỡng AI gợi ý do NTD chọn (slider)
-  const [strongThreshold, setStrongThreshold] = useState(DEFAULT_STRONG_THRESHOLD);
-
-  // Load dữ liệu ứng viên
   useEffect(() => {
     if (!idFromRoute) return;
     loadData(idFromRoute);
-  }, [idFromRoute]);
-
-  // Đọc ngưỡng AI gợi ý đã lưu (ưu tiên theo job, sau đó global)
-  useEffect(() => {
-    if (!idFromRoute) {
-      setStrongThreshold(getGlobalStrongThreshold());
-      return;
-    }
-    try {
-      const jobKey = `${STRONG_THRESHOLD_KEY_PREFIX}${idFromRoute}`;
-      const savedJob = localStorage.getItem(jobKey);
-      if (savedJob != null) {
-        const num = Number(savedJob);
-        if (Number.isFinite(num) && num >= THRESHOLD_OK && num <= 100) {
-          setStrongThreshold(num);
-          return;
-        }
-      }
-      // fallback global
-      setStrongThreshold(getGlobalStrongThreshold());
-    } catch {
-      setStrongThreshold(DEFAULT_STRONG_THRESHOLD);
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idFromRoute]);
 
   const loadData = async (jobId) => {
@@ -132,7 +92,7 @@ export default function Applicants() {
       const jobData = jobRes.data?.data || jobRes.data || null;
       setJob(jobData);
 
-      // 2) Applications
+      // 2) Applications (lấy tối đa 1000 ứng viên cho job này)
       const appsRes = await applicationService.getJobApplications(jobId, {
         limit: 1000,
       });
@@ -143,10 +103,14 @@ export default function Applicants() {
         apps.map(async (app) => {
           try {
             const scoreRes = await api.get(`/applications/${app.id}/score`, {
-              params: { _t: Date.now() },
+              params: { _t: Date.now() }, // tránh cache
               headers: { 'Cache-Control': 'no-cache' },
             });
-            return { ...app, aiScore: (scoreRes.data?.data || scoreRes.data) ?? null };
+
+            return {
+              ...app,
+              aiScore: (scoreRes.data?.data || scoreRes.data) ?? null,
+            };
           } catch (error) {
             console.warn(
               `Failed to get score for ${app.id}:`,
@@ -169,43 +133,35 @@ export default function Applicants() {
     }
   };
 
-  // Cập nhật ngưỡng AI gợi ý + lưu localStorage (global + theo job)
-  const updateStrongThreshold = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return;
-    if (num < THRESHOLD_OK || num > 100) return;
-
-    setStrongThreshold(num);
-
-    try {
-      localStorage.setItem(GLOBAL_STRONG_THRESHOLD_KEY, String(num));
-      if (idFromRoute) {
-        const jobKey = `${STRONG_THRESHOLD_KEY_PREFIX}${idFromRoute}`;
-        localStorage.setItem(jobKey, String(num));
-      }
-    } catch {
-      // ignore
-    }
-  };
-
   const visibleApps = applications;
 
-  // NHÓM 1: AI gợi ý
-  const strongApps = visibleApps
-    .filter((a) => (a.aiScore?.scoreTotal || 0) >= strongThreshold)
-    .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
+  // ===== Nhóm Phù hợp (>=50) =====
+  const suitableApps = useMemo(() => {
+    return [...visibleApps]
+      .filter((a) => (a.aiScore?.scoreTotal || 0) >= THRESHOLD_OK)
+      .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
+  }, [visibleApps]);
 
-  // NHÓM 2: Phù hợp >= 50
-  const suitableApps = visibleApps
-    .filter((a) => (a.aiScore?.scoreTotal || 0) >= THRESHOLD_OK)
-    .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
+  // ===== Nhóm Không phù hợp (<50) =====
+  const badApps = useMemo(() => {
+    return [...visibleApps]
+      .filter((a) => (a.aiScore?.scoreTotal || 0) < THRESHOLD_OK)
+      .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
+  }, [visibleApps]);
 
-  // NHÓM 3: Không phù hợp < 50
-  const badApps = visibleApps
-    .filter((a) => (a.aiScore?.scoreTotal || 0) < THRESHOLD_OK)
-    .sort((a, b) => (b.aiScore?.scoreTotal || 0) - (a.aiScore?.scoreTotal || 0));
+  // ===== AI GỢI Ý theo headcount (Top‑K + backup) =====
+  const { TOP_K, BACKUP, strongApps } = useMemo(() => {
+    const headcount = Number(job?.headcount || 0);
+    const topK = headcount > 0 ? headcount : DEFAULT_TOP_K;
+    const backup = DEFAULT_BACKUP;
 
-  // Mời phỏng vấn
+    // Lấy Top (K + backup) từ nhóm phù hợp (>=50)
+    const shortlist = suitableApps.slice(0, topK + backup);
+
+    return { TOP_K: topK, BACKUP: backup, strongApps: shortlist };
+  }, [job?.headcount, suitableApps]);
+
+  // Mời phỏng vấn (chỉ dùng cho nhóm strong)
   const inviteInterview = async (applicationId) => {
     const app = applications.find((a) => a.id === applicationId);
     const name = app?.candidate?.name || 'ứng viên';
@@ -228,13 +184,16 @@ export default function Applicants() {
 
       await loadData(idFromRoute);
     } catch (error) {
-      alert(error?.response?.data?.message || 'Có lỗi xảy ra khi mời phỏng vấn');
+      alert(
+        error?.response?.data?.message ||
+          'Có lỗi xảy ra khi mời phỏng vấn',
+      );
     } finally {
       setInviting(null);
     }
   };
 
-  // Từ chối tất cả "Không phù hợp"
+  // Từ chối tất cả nhóm "Không phù hợp"
   const rejectAllBad = async () => {
     const count = badApps.length;
     if (!count) {
@@ -251,7 +210,9 @@ export default function Applicants() {
 
     for (const app of badApps) {
       try {
-        await applicationService.updateApplicationStatus(app.id, { status: 'rejected' });
+        await applicationService.updateApplicationStatus(app.id, {
+          status: 'rejected',
+        });
         ok++;
       } catch (e) {
         console.error('Reject failed for app', app.id, e);
@@ -260,9 +221,7 @@ export default function Applicants() {
     }
 
     alert(
-      `Đã từ chối ${ok} ứng viên.${
-        fail ? ` Có ${fail} ứng viên lỗi, vui lòng thử lại sau.` : ''
-      }`,
+      `Đã từ chối ${ok} ứng viên.${fail ? ` Có ${fail} ứng viên lỗi, vui lòng thử lại sau.` : ''}`,
     );
 
     await loadData(idFromRoute);
@@ -282,11 +241,13 @@ export default function Applicants() {
       setRescoreAllLoading(true);
 
       await jobService.rescoreJobApplications(idFromRoute, {
-        onlyMissing: false,
+        onlyMissing: false, // luôn rescore tất cả
         staleMinutes: 0,
       });
 
-      alert('Đã gửi yêu cầu. Hệ thống đang chấm điểm, vui lòng đợi khoảng 10 giây...');
+      alert(
+        'Đã gửi yêu cầu. Hệ thống đang chấm điểm, vui lòng đợi khoảng 10 giây...',
+      );
 
       setTimeout(async () => {
         await loadData(idFromRoute);
@@ -320,39 +281,23 @@ export default function Applicants() {
             <h2 className="text-xl font-semibold text-gray-900">
               {job?.title || 'Quản lý ứng viên'}
             </h2>
+
             <p className="text-sm text-gray-500 mt-1">
-              Tổng: {total} ứng viên | AI gợi ý (ứng viên phù hợp vị trí, &ge;{' '}
-              {strongThreshold}%): {strongApps.length} | Phù hợp (&ge; {THRESHOLD_OK}%):{' '}
+              Tổng: {total} ứng viên | AI gợi ý (Top {TOP_K} + dự phòng {BACKUP}
+              ): {strongApps.length} | Phù hợp (&ge; {THRESHOLD_OK}%):{' '}
               {suitableApps.length} | Không phù hợp: {badApps.length}
             </p>
+
             <p className="text-xs text-gray-400 mt-1">
-              Điểm dưới 50%: được xem là <strong>Không phù hợp</strong>. Điểm từ 50% trở
-              lên: nằm trong nhóm <strong>Phù hợp</strong>. Thanh bên phải cho phép{' '}
-              <strong>Nhà tuyển dụng</strong> chọn ngưỡng <strong>"AI gợi ý"</strong> (hiện
-              tại là &ge; {strongThreshold}%).
+              Điểm dưới {THRESHOLD_OK}%: <strong>Không phù hợp</strong>. Điểm từ{' '}
+              {THRESHOLD_OK}% trở lên: nằm trong nhóm <strong>Phù hợp</strong>.
+              Danh sách <strong>AI gợi ý</strong> được chọn theo{' '}
+              <strong>headcount</strong> của tin tuyển dụng (Top {TOP_K}) và có
+              thêm <strong>dự phòng</strong>.
             </p>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Slider ngưỡng AI gợi ý */}
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-2 text-xs text-gray-600">
-                <span>Ngưỡng AI gợi ý:</span>
-                <span className="font-semibold text-blue-600">
-                  &ge; {strongThreshold}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={THRESHOLD_OK}
-                max={100}
-                step={1}
-                value={strongThreshold}
-                onChange={(e) => updateStrongThreshold(e.target.value)}
-                className="w-40 accent-blue-600"
-              />
-            </div>
-
             <button
               onClick={rescoreAll}
               disabled={rescoreAllLoading}
@@ -364,6 +309,7 @@ export default function Applicants() {
               />
               {rescoreAllLoading ? 'Đang xử lý AI...' : 'Rescore tất cả'}
             </button>
+
             <Link
               to="/employer/jobs"
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
@@ -386,8 +332,9 @@ export default function Applicants() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              💡 AI gợi ý (Ứng viên phù hợp vị trí) ({strongApps.length})
+              💡 AI gợi ý (Top {TOP_K} + dự phòng {BACKUP}) ({strongApps.length})
             </button>
+
             <button
               onClick={() => setActiveTab('ok')}
               className={`flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm ${
@@ -396,8 +343,9 @@ export default function Applicants() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              ✅ Phù hợp ({suitableApps.length})
+              ✅ Phù hợp (&ge; {THRESHOLD_OK}%) ({suitableApps.length})
             </button>
+
             <button
               onClick={() => setActiveTab('bad')}
               className={`flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm ${
@@ -406,7 +354,7 @@ export default function Applicants() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              ❌ Không phù hợp ({badApps.length})
+              ❌ Không phù hợp (&lt; {THRESHOLD_OK}%) ({badApps.length})
             </button>
           </nav>
         </div>
@@ -418,7 +366,8 @@ export default function Applicants() {
               applications={strongApps}
               inviting={inviting}
               onInvite={inviteInterview}
-              strongThreshold={strongThreshold}
+              topK={TOP_K}
+              backup={BACKUP}
             />
           ) : activeTab === 'ok' ? (
             <OkList applications={suitableApps} />
@@ -435,15 +384,13 @@ export default function Applicants() {
   );
 }
 
-// ===== Tab 1: AI GỢI Ý =====
-function StrongList({ applications, inviting, onInvite, strongThreshold }) {
+// ===== Tab 1: AI GỢI Ý (Top‑K + backup) =====
+function StrongList({ applications, inviting, onInvite, topK, backup }) {
   if (!applications.length) {
     return (
       <div className="text-center py-12 text-gray-500">
         <div className="text-4xl mb-2">📭</div>
-        <div>
-          Chưa có ứng viên nào đạt ngưỡng AI gợi ý (&ge; {strongThreshold}%).
-        </div>
+        <div>Chưa có ứng viên nào đạt mức “Phù hợp” để AI gợi ý.</div>
       </div>
     );
   }
@@ -476,6 +423,7 @@ function StrongList({ applications, inviting, onInvite, strongThreshold }) {
             </th>
           </tr>
         </thead>
+
         <tbody className="bg-white divide-y divide-gray-200">
           {applications.map((app, index) => {
             const score = app.aiScore?.scoreTotal || 0;
@@ -497,11 +445,25 @@ function StrongList({ applications, inviting, onInvite, strongThreshold }) {
               app.status,
             );
 
+            const isMainTop = index < topK;
+            const badge = isMainTop ? (
+              <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                Top {topK}
+              </span>
+            ) : (
+              <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-gray-50 text-gray-600 border border-gray-200">
+                Dự phòng {backup}
+              </span>
+            );
+
             return (
               <tr key={app.id} className="hover:bg-gray-50">
                 <td className="px-4 py-4 whitespace-nowrap">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800 font-semibold">
-                    {index + 1}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800 font-semibold">
+                      {index + 1}
+                    </div>
+                    {badge}
                   </div>
                 </td>
 
@@ -535,7 +497,9 @@ function StrongList({ applications, inviting, onInvite, strongThreshold }) {
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-1 max-w-xs">
                     {matched.length ? (
-                      matched.map((s, i) => <SkillChip key={s + i} label={s} tone="green" />)
+                      matched.map((s, i) => (
+                        <SkillChip key={s + i} label={s} tone="green" />
+                      ))
                     ) : (
                       <span className="text-gray-400 text-sm">—</span>
                     )}
@@ -545,14 +509,16 @@ function StrongList({ applications, inviting, onInvite, strongThreshold }) {
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-1 max-w-xs">
                     {missing.length ? (
-                      missing.map((s, i) => <SkillChip key={s + i} label={s} tone="red" />)
+                      missing.map((s, i) => (
+                        <SkillChip key={s + i} label={s} tone="red" />
+                      ))
                     ) : (
                       <span className="text-gray-400 text-sm">—</span>
                     )}
                   </div>
                 </td>
 
-                {/* CHỈ TAB NÀY ĐƯỢC XEM CV */}
+                {/* CHỈ TAB AI GỢI Ý ĐƯỢC XEM CV */}
                 <td className="px-4 py-4 whitespace-nowrap">
                   {app.cv?.url || app.cv?.filePath ? (
                     <a
@@ -600,15 +566,13 @@ function StrongList({ applications, inviting, onInvite, strongThreshold }) {
   );
 }
 
-// ===== Tab 2: PHÙ HỢP (>= 50%) =====
+// ===== Tab 2: PHÙ HỢP (>=50), CV BỊ KHÓA =====
 function OkList({ applications }) {
   if (!applications.length) {
     return (
       <div className="text-center py-12 text-gray-500">
         <div className="text-4xl mb-2">🙂</div>
-        <div>
-          Chưa có ứng viên nào đạt mức điểm từ {THRESHOLD_OK}% trở lên.
-        </div>
+        <div>Chưa có ứng viên nào đạt mức điểm từ {THRESHOLD_OK}% trở lên.</div>
       </div>
     );
   }
@@ -638,6 +602,7 @@ function OkList({ applications }) {
             </th>
           </tr>
         </thead>
+
         <tbody className="bg-white divide-y divide-gray-200">
           {applications.map((app, index) => {
             const score = app.aiScore?.scoreTotal || 0;
@@ -649,6 +614,7 @@ function OkList({ applications }) {
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                   {index + 1}
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">
                     {app.candidate?.name || 'Không rõ'}
@@ -658,11 +624,13 @@ function OkList({ applications }) {
                     {app.candidate?.email || ''}
                   </div>
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-50 text-blue-700">
                     {score}%
                   </span>
                 </td>
+
                 <td className="px-4 py-4">
                   {matched.length ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
@@ -674,6 +642,7 @@ function OkList({ applications }) {
                     <span className="text-sm text-gray-400">—</span>
                   )}
                 </td>
+
                 <td className="px-4 py-4">
                   {missing.length ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
@@ -685,10 +654,10 @@ function OkList({ applications }) {
                     <span className="text-sm text-gray-400">—</span>
                   )}
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <span className="text-gray-400 text-xs italic">
-                    Chỉ CV trong mục "AI gợi ý (Ứng viên phù hợp vị trí)" mới được
-                    hiển thị.
+                    Chỉ CV trong mục "AI gợi ý" mới được hiển thị.
                   </span>
                 </td>
               </tr>
@@ -700,7 +669,7 @@ function OkList({ applications }) {
   );
 }
 
-// ===== Tab 3: KHÔNG PHÙ HỢP (< 50%) =====
+// ===== Tab 3: KHÔNG PHÙ HỢP (<50%), CV BỊ KHÓA =====
 function BadList({ applications, onRejectAll, rejectAllLoading }) {
   if (!applications.length) {
     return (
@@ -754,6 +723,7 @@ function BadList({ applications, onRejectAll, rejectAllLoading }) {
             </th>
           </tr>
         </thead>
+
         <tbody className="bg-white divide-y divide-gray-200">
           {applications.map((app, index) => {
             const score = app.aiScore?.scoreTotal || 0;
@@ -765,6 +735,7 @@ function BadList({ applications, onRejectAll, rejectAllLoading }) {
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                   {index + 1}
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">
                     {app.candidate?.name || 'Không rõ'}
@@ -774,11 +745,13 @@ function BadList({ applications, onRejectAll, rejectAllLoading }) {
                     {app.candidate?.email || ''}
                   </div>
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
                     {score}%
                   </span>
                 </td>
+
                 <td className="px-4 py-4">
                   {matched.length ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
@@ -790,6 +763,7 @@ function BadList({ applications, onRejectAll, rejectAllLoading }) {
                     <span className="text-sm text-gray-400">—</span>
                   )}
                 </td>
+
                 <td className="px-4 py-4">
                   {missingMustHave.length ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
@@ -803,11 +777,13 @@ function BadList({ applications, onRejectAll, rejectAllLoading }) {
                     </span>
                   )}
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap">
                   <span className="text-gray-400 text-xs italic">
                     CV không hiển thị vì AI đánh giá không phù hợp
                   </span>
                 </td>
+
                 <td className="px-4 py-4 whitespace-nowrap text-right text-sm text-gray-400">
                   —
                 </td>

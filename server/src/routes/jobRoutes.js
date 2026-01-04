@@ -13,21 +13,21 @@ const {
 } = require('../controllers/jobController');
 const { auth, requireEmployer } = require('../middleware/auth');
 
-// ⭐ Quan trọng: Import Score để dùng trong rescore
+// Quan trọng: Import Score để dùng trong rescore
 const { Application, Job, CV, User, Score, sequelize } = require('../models');
 const { enqueueScoreApplication } = require('../services/scoreService');
 const { createNotification } = require('../services/notificationService');
 
 const router = express.Router();
 
-/* ================= Options cố định cho form/filter ================= */
+/* Options cố định cho form/filter */
 const LEVELS = ['Thực tập sinh', 'Nhân viên', 'Trưởng phòng', 'Quản lý', 'Giám đốc'];
 const EDUCATIONS = ['THPT', 'Cao đẳng', 'Đại học', 'Thạc sĩ', 'Tiến sĩ'];
 const EXP_BANDS = ['Dưới 1 năm', '1-3 năm', '3-5 năm', '5-10 năm', 'Trên 10 năm'];
 const SALARY_BANDS = ['Dưới 5 triệu', '5-10 triệu', '10-20 triệu', 'Trên 20 triệu'];
 const WORK_MODES = ['onsite', 'hybrid', 'remote'];
 
-/* ================= Validation rules ================= */
+/* Validation rules */
 const createJobValidation = [
   body('title').trim().isLength({ min: 1, max: 255 }).withMessage('Title is required (max 255 characters)'),
   body('company').trim().isLength({ min: 1, max: 255 }).withMessage('Company name is required (max 255 characters)'),
@@ -186,6 +186,31 @@ router.post(
           .status(404)
           .json({ message: 'Job not found or not active' });
 
+      const normalizeDateOnly = (v) => {
+        if (!v) return null;
+        if (typeof v === 'string') {
+          const m = v.match(/\d{4}-\d{2}-\d{2}/);
+          return m ? m[0] : null;
+        }
+        if (v instanceof Date && !Number.isNaN(v.getTime())) {
+          const y = v.getFullYear();
+          const m = String(v.getMonth() + 1).padStart(2, '0');
+          const d = String(v.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        return null;
+      };
+
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const deadlineStr = normalizeDateOnly(job.deadline);
+      if (deadlineStr && deadlineStr < todayStr) {
+        return res.status(400).json({
+          message: 'Công việc đã hết hạn tuyển dụng',
+          code: 'JOB_EXPIRED',
+        });
+      }
+
       const existing = await Application.findOne({
         where: { jobId, candidateId },
       });
@@ -213,6 +238,13 @@ router.post(
           'cvUrl', 'cvName'
         ],
       });
+
+      if (!cvId && !u?.cvUrl) {
+        return res.status(400).json({
+          message: 'Bạn cần tải CV lên trước khi ứng tuyển',
+          code: 'CV_REQUIRED',
+        });
+      }
 
       const snapshot = u ? {
         id: u.id, name: u.name, email: u.email, phone: u.phone,
@@ -426,7 +458,7 @@ router.post(
 
         if (onlyMissing && hasScoreModel) {
           try {
-            // 🔥 FIX: chỉ dùng generatedAt vì DB chỉ có cột này
+            // chỉ dùng generatedAt vì DB chỉ có cột này
             const last = await Score.findOne({
               where: { applicationId: a.id },
               order: [['generatedAt', 'DESC']],

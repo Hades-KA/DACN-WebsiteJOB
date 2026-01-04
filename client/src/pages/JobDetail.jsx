@@ -103,6 +103,9 @@ export default function JobDetail() {
   // Số ứng viên đã được nhận (accepted) cho job này
   const [acceptedCount, setAcceptedCount] = useState(0);
 
+  const [candidateHasCv, setCandidateHasCv] = useState(true);
+  const [checkingCv, setCheckingCv] = useState(false);
+
   const userRaw = localStorage.getItem('user');
   const currentUser =
     userRaw && userRaw !== 'undefined' && userRaw !== 'null'
@@ -110,6 +113,50 @@ export default function JobDetail() {
       : null;
   const userType = currentUser?.userType || currentUser?.role;
   const currentUserId = currentUser?.id || currentUser?.userId || currentUser?._id || null;
+
+  // Check CV: ứng viên phải có CV (cvUrl trong profile hoặc có bản ghi trong bảng CV) trước khi apply
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const token = localStorage.getItem('token');
+      const isCandidate = userType === 'candidate' || userType === 'admin';
+
+      if (!token || !isCandidate || !currentUserId) {
+        if (active) {
+          setCandidateHasCv(true);
+          setCheckingCv(false);
+        }
+        return;
+      }
+
+      try {
+        if (active) setCheckingCv(true);
+
+        let has = false;
+        try {
+          const pr = await userService.getProfile();
+          const p = pr?.data?.data || pr?.data || {};
+          if (p?.cvUrl) has = true;
+        } catch {}
+
+        if (!has) {
+          try {
+            const res = await cvService.getAllCVs();
+            const items = res?.data?.data || res?.data || [];
+            has = Array.isArray(items) && items.length > 0;
+          } catch {}
+        }
+
+        if (active) setCandidateHasCv(has);
+      } finally {
+        if (active) setCheckingCv(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUserId, userType]);
 
   // Load job
   useEffect(() => {
@@ -319,6 +366,12 @@ export default function JobDetail() {
     }
     if (applied) return;
 
+    if (!candidateHasCv) {
+      toast.error('Bạn cần tải CV lên trước khi ứng tuyển');
+      navigate('/profile/myprofile');
+      return;
+    }
+
     try {
       setApplying(true);
 
@@ -370,8 +423,6 @@ export default function JobDetail() {
           cvUrl: cvFromService.cvUrl,
           cvName: cvFromService.cvName,
         });
-      if (candidateId) candidates.push({ candidateId });
-      candidates.push({});
 
       let success = false;
       let lastErr = null;
@@ -408,7 +459,7 @@ export default function JobDetail() {
       if (!isSaved) {
         const res = await api.post('/saved-jobs', { jobId: job.id });
         const sv = res?.data?.data || res?.data || {};
-        const sid = sv.id || sv.savedId || null;
+        const sid = sv.id || sv.savedId || sv._id || null;
         setIsSaved(true);
         if (sid) setSavedId(sid);
         toast.success('Đã lưu tin');
@@ -485,7 +536,10 @@ export default function JobDetail() {
     website: job?.employer?.companyWebsite || '',
   };
 
-  const primaryDisabled = applied || isExpired || isFull;
+  const token = localStorage.getItem('token');
+  const isCandidate = userType === 'candidate' || userType === 'admin';
+  const cvBlocked = token && isCandidate && !candidateHasCv;
+  const primaryDisabled = applied || isExpired || isFull || checkingCv || cvBlocked;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -532,6 +586,7 @@ export default function JobDetail() {
                         {job.salary || job.salaryBand || 'Thoả thuận'}
                       </span>
                     </div>
+
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5">
                         <CalendarDays className="w-4 h-4 text-slate-500" />
@@ -562,7 +617,6 @@ export default function JobDetail() {
                     </div>
                   </div>
 
-                  {/* CTA */}
                   <div className="mt-4 flex items-center gap-3">
                     <button
                       type="button"
@@ -584,6 +638,10 @@ export default function JobDetail() {
                         ? 'Hết hạn'
                         : isFull
                         ? 'Đã đủ số lượng'
+                        : checkingCv
+                        ? 'Đang kiểm tra CV...'
+                        : cvBlocked
+                        ? 'Tải CV để nộp'
                         : applying
                         ? 'Đang nộp...'
                         : 'Nộp đơn ngay'}
@@ -613,7 +671,6 @@ export default function JobDetail() {
                     </button>
                   </div>
 
-                  {/* Nếu có quantity -> hiển thị X/Y */}
                   {quantity > 0 && (
                     <div className="mt-2 text-xs text-slate-600">
                       Đã nhận: <span className="font-semibold">{acceptedCount}</span> /{' '}

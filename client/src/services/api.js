@@ -8,7 +8,7 @@ const apiBase = /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
 
 const api = axios.create({
   baseURL: apiBase,
-  timeout: 30000,
+  timeout: 120000,
   headers: { 'Content-Type': 'application/json' },
 });
 

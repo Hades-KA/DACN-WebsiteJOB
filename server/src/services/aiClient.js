@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 // ========== CONFIG ==========
-const AI_BASE_URL = (process.env.AI_BASE_URL || 'http://localhost:8001/v1').replace(/\/$/, '');
+const AI_BASE_URL = (process.env.AI_BASE_URL || 'http://localhost:8002/v1').replace(/\/$/, '');
 const AI_API_KEY = process.env.AI_API_KEY || 'dev-key';
 const AI_TIMEOUT = parseInt(process.env.AI_TIMEOUT_MS || '60000', 10); // Tăng lên 60s
 
@@ -30,7 +30,7 @@ function formatAIError(error) {
     console.error(`[AI Service] No response from ${AI_BASE_URL}:`, error.message);
 
     if (error.code === 'ECONNREFUSED') {
-      return new Error('AI Service không chạy hoặc không thể kết nối. Kiểm tra port 8001.');
+      return new Error('AI Service không chạy hoặc không thể kết nối. Kiểm tra port 8002.');
     }
     if (error.code === 'ECONNRESET') {
       return new Error('Kết nối AI Service bị ngắt giữa chừng. Có thể do timeout hoặc crash.');

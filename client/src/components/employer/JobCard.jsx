@@ -2,7 +2,13 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 const JobCard = ({ job }) => {
-  const statusText = job.isActive ? 'Đang mở' : 'Đã đóng';
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const deadlineStr = job.deadline ? String(job.deadline).slice(0, 10) : null;
+  const isExpired = !!(deadlineStr && deadlineStr < todayStr);
+  const isActive = !!job.isActive;
+
+  const statusText = isExpired ? 'Hết hạn' : isActive ? 'Đang mở' : 'Đã đóng';
   const apps = job.applicationsCount ?? 0;
   const views = job.viewsCount ?? 0;
   const posted = job.createdAt ? new Date(job.createdAt).toLocaleDateString('vi-VN') : '';
@@ -18,7 +24,15 @@ const JobCard = ({ job }) => {
               </Link>
             </h3>
             <div className="ml-2">
-              <span className={`px-2 inline-flex text-xs font-semibold rounded-full ${job.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              <span
+                className={`px-2 inline-flex text-xs font-semibold rounded-full ${
+                  isExpired
+                    ? 'bg-orange-100 text-orange-700'
+                    : isActive
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
                 {statusText}
               </span>
             </div>
