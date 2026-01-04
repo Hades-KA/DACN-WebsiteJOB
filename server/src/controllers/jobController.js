@@ -1,43 +1,145 @@
-const { Job, User, Application } = require('../models');
+// server/src/controllers/jobController.js
+const { Job, User, Application, CV, sequelize } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const { createNotification } = require('../services/notificationService');
 
-// Get all jobs with pagination and filters
-const getAllJobs = async (req, res) => {
+function mapTypeToEn(input) {
+  if (!input) return input;
+  const k = String(input).trim().toLowerCase();
+  const map = {
+    'toàn thời gian': 'full-time',
+    'ban thoi gian': 'part-time',
+    'bán thời gian': 'part-time',
+    'thời vụ': 'contract',
+    thuctap: 'intern',
+    'thuc tap': 'intern',
+    'thực tập': 'intern',
+  };
+  return map[k] || input;
+}
+
+function daysFromPosted(p) {
+  if (!p) return 0;
+  const key = String(p).trim().toLowerCase();
+  const map = {
+    'hôm nay': 1,
+    'hom nay': 1,
+    today: 1,
+    '0d': 1,
+    '3 ngày': 3,
+    '3 ngay': 3,
+    '3d': 3,
+    '1 tuần': 7,
+    '1 tuan': 7,
+    '1w': 7,
+    '2 tuần': 14,
+    '2 tuan': 14,
+    '2w': 14,
+    '1 tháng': 30,
+    '1 thang': 30,
+    '1m': 30,
+  };
+  return map[key] || 0;
+}
+
+const hasAttr = (name) => !!(Job?.rawAttributes && Job.rawAttributes[name]);
+
+const absoluteUrl = (req, url) => {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!url.startsWith('/')) return url;
+  return `${req.protocol}://${req.get('host')}${url}`;
+};
+
+// GET /api/jobs
+async function getAllJobs(req, res) {
   try {
     const {
+      search,
       title,
       location,
       category,
-      type,
+      level,
+      education,
       experience,
-      skills,
-      sort = 'createdAt:desc',
+      salary,
+      type,
+      posted,
+      featured,
+      exclude,
+      includeExpired,
       page = 1,
-      limit = 10
+      limit = 20,
+      sort = 'newest',
+      skills,
     } = req.query;
 
-    const offset = (page - 1) * limit;
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Chỉ trả job đang active cho phía public (ứng viên)
     const whereClause = { isActive: true };
+    const and = [];
 
-    if (title) {
-      whereClause.title = { [Op.like]: `%${title}%` };
+    if (
+      hasAttr('deadline') &&
+      String(includeExpired || '').toLowerCase() !== 'true'
+    ) {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      and.push({
+        [Op.or]: [{ deadline: null }, { deadline: { [Op.gte]: todayStr } }],
+      });
     }
 
-    if (location) {
-      whereClause.location = { [Op.like]: `%${location}%` };
+    const q = (search || title || '').trim();
+    if (q) {
+      and.push({
+        [Op.or]: [
+          { title: { [Op.like]: `%${q}%` } },
+          { company: { [Op.like]: `%${q}%` } },
+        ],
+      });
     }
 
-    if (category) {
-      whereClause.category = { [Op.like]: `%${category}%` };
+    if (location) and.push({ location: { [Op.like]: `%${location}%` } });
+    if (category) and.push({ category: { [Op.like]: `%${category}%` } });
+
+    if (level && hasAttr('level')) and.push({ level });
+    if (education && hasAttr('education')) and.push({ education });
+
+    if (experience) {
+      if (hasAttr('experienceBand')) {
+        and.push({
+          [Op.or]: [
+            { experienceBand: experience },
+            { experience: { [Op.like]: `%${experience}%` } },
+          ],
+        });
+      } else {
+        and.push({ experience: { [Op.like]: `%${experience}%` } });
+      }
+    }
+
+    if (salary) {
+      if (hasAttr('salaryBand')) {
+        and.push({
+          [Op.or]: [
+            { salaryBand: salary },
+            { salary: { [Op.like]: `%${salary}%` } },
+          ],
+        });
+      } else {
+        and.push({ salary: { [Op.like]: `%${salary}%` } });
+      }
     }
 
     if (type) {
-      whereClause.type = type;
-    }
-
-    if (experience) {
-      whereClause.experience = { [Op.like]: `%${experience}%` };
+      const en = mapTypeToEn(type);
+      and.push({ type: en });
     }
 
     if (skills) {
@@ -45,329 +147,692 @@ const getAllJobs = async (req, res) => {
         ? skills
         : String(skills)
             .split(',')
-            .map(s => s.trim())
+            .map((s) => s.trim())
             .filter(Boolean);
-      if (list.length) {
-        whereClause[Op.and] = [
-          ...(whereClause[Op.and] || []),
-          ...list.map(s => ({ skills: { [Op.like]: `%${s}%` } }))
-        ];
-      }
+      list.forEach((s) => and.push({ skills: { [Op.like]: `%${s}%` } }));
     }
 
+    if (String(featured).toLowerCase() === 'true') and.push({ isFeatured: true });
+    if (exclude) and.push({ id: { [Op.ne]: exclude } });
+
+    const days = daysFromPosted(posted);
+    if (days > 0 && hasAttr('createdAt')) {
+      const since = new Date(Date.now() - days * 86400000);
+      and.push({ createdAt: { [Op.gte]: since } });
+    }
+
+    if (and.length) whereClause[Op.and] = and;
+
     let order = [['createdAt', 'DESC']];
-    if (sort) {
-      const [field, dir] = String(sort).split(':');
-      const direction = (dir || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-      if (['createdAt'].includes(field)) {
+    const s = String(sort).trim();
+    if (s === 'oldest') order = [['createdAt', 'ASC']];
+    else if (s.includes(':')) {
+      const [field, dirRaw] = s.split(':');
+      const direction =
+        String(dirRaw || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      if (
+        ['createdAt', 'updatedAt', 'viewsCount', 'applicationsCount'].includes(
+          field,
+        )
+      )
         order = [[field, direction]];
-      }
     }
 
     const { count, rows: jobs } = await Job.findAndCountAll({
       where: whereClause,
+      attributes: [
+        'id',
+        'title',
+        'company',
+        'location',
+        'workAddress',
+        'salary',
+        'salaryBand',
+        'type',
+        'workMode',
+        'experience',
+        'experienceBand',
+        'level',
+        'education',
+        'description',
+        'requirements',
+        'benefits',
+        'category',
+        'skills',
+        'deadline',
+        'headcount',
+        'contactName',
+        'contactEmail',
+        'contactPhone',
+        'contactAddress',
+        'isActive',
+        'isFeatured',
+        'applicationsCount',
+        'viewsCount',
+        'employerId',
+        'jobCode',
+        'jdText',
+        'mustHaveSkills',
+        'niceToHaveSkills',
+        'jdVersion',
+        'createdAt',
+        'updatedAt',
+      ],
       include: [
         {
           model: User,
           as: 'employer',
-          attributes: ['id', 'name', 'company']
-        }
+          attributes: [
+            'id',
+            'name',
+            'company',
+            'email',
+            'phone',
+            'logoUrl',
+            'companyAddress',
+          ],
+          required: false,
+        },
       ],
       order,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: limitNum,
+      offset,
     });
 
-    res.json({
+    return res.json({
       message: 'Jobs retrieved successfully',
       data: jobs,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
         totalItems: count,
-        itemsPerPage: parseInt(limit)
-      }
+        itemsPerPage: limitNum,
+      },
     });
   } catch (error) {
     console.error('Get jobs error:', error);
-    res.status(500).json({
-      message: 'Failed to retrieve jobs',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    return res.status(500).json({ message: 'Failed to retrieve jobs' });
   }
-};
+}
 
-// Get job by ID
-const getJobById = async (req, res) => {
+// GET /api/jobs/:id
+async function getJobById(req, res) {
   try {
     const { id } = req.params;
+    console.log('getJobById id =', id);
 
-    const job = await Job.findOne({
-      where: { id, isActive: true },
+    try {
+      const [meta] = await sequelize.query(
+        "SELECT DB_NAME() AS db, @@SERVERNAME AS server, SERVERPROPERTY('InstanceName') AS instance",
+      );
+      console.log(
+        'Connected => db:',
+        meta[0]?.db,
+        'server:',
+        meta[0]?.server,
+        'instance:',
+        meta[0]?.instance || '(default)',
+      );
+    } catch {}
+
+    const job = await Job.unscoped().findByPk(id, {
+      paranoid: false,
+      attributes: [
+        'id',
+        'title',
+        'company',
+        'location',
+        'workAddress',
+        'salary',
+        'salaryBand',
+        'type',
+        'workMode',
+        'experience',
+        'experienceBand',
+        'level',
+        'education',
+        'description',
+        'requirements',
+        'benefits',
+        'category',
+        'skills',
+        'deadline',
+        'headcount',
+        'contactName',
+        'contactEmail',
+        'contactPhone',
+        'contactAddress',
+        'isActive',
+        'isFeatured',
+        'applicationsCount',
+        'viewsCount',
+        'employerId',
+        'jobCode',
+        'jdText',
+        'mustHaveSkills',
+        'niceToHaveSkills',
+        'jdVersion',
+        'createdAt',
+        'updatedAt',
+      ],
       include: [
         {
           model: User,
           as: 'employer',
-          attributes: ['id', 'name', 'company', 'email']
-        }
-      ]
+          attributes: [
+            'id',
+            'name',
+            'company',
+            'email',
+            'phone',
+            'logoUrl',
+            'companyAddress',
+            'companyWebsite',
+          ],
+          required: false,
+          paranoid: false,
+        },
+      ],
+      logging: console.log,
     });
 
     if (!job) {
-      return res.status(404).json({
-        message: 'Job not found'
-      });
+      try {
+        const [rows] = await sequelize.query(
+          'SELECT id, title, isActive FROM dbo.jobs WHERE id = :id',
+          { replacements: { id } },
+        );
+        console.log('Raw query rows:', rows?.length || 0, rows?.[0]);
+      } catch (e) {
+        console.log('Raw query error:', e?.message);
+      }
+      return res.status(404).json({ message: 'Job not found' });
     }
 
-    // Increment view count
-    await job.increment('viewsCount');
+    if (job.isActive) {
+      await job.increment('viewsCount').catch(() => {});
+    }
 
-    res.json({
-      message: 'Job retrieved successfully',
-      data: job
-    });
+    return res.json({ message: 'Job retrieved successfully', data: job });
   } catch (error) {
     console.error('Get job error:', error);
-    res.status(500).json({
-      message: 'Failed to retrieve job',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    return res.status(500).json({ message: 'Failed to retrieve job' });
   }
-};
+}
 
-// Create new job
-const createJob = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    // Normalize optional fields to avoid MSSQL type conversion errors
-    const body = { ...req.body };
-    // Convert empty strings to null
-    ['salary', 'experience', 'benefits', 'description', 'requirements', 'category'].forEach(k => {
-      if (body[k] === '') delete body[k];
-    });
-    // Deadline: temporarily force to null to bypass date conversion issues during testing
-    body.deadline = null;
-    // Skills: accept array or JSON string
-    if (typeof body.skills === 'string' && body.skills.trim() !== '') {
-      try {
-        const parsed = JSON.parse(body.skills);
-        body.skills = Array.isArray(parsed) ? parsed : [];
-      } catch (_) {
-        body.skills = body.skills.split(',').map(s => s.trim()).filter(Boolean);
-      }
-    }
-
-    const jobData = {
-      ...body,
-      employerId: req.user.userId
-    };
-
-    console.log('CreateJob payload:', jobData);
-
-    const job = await Job.create(jobData);
-
-    res.status(201).json({
-      message: 'Job created successfully',
-      data: job
-    });
-  } catch (error) {
-    console.error('Create job error:', error);
-    res.status(500).json({
-      message: 'Failed to create job',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Update job
-const updateJob = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { id } = req.params;
-    const job = await Job.findOne({
-      where: { id, employerId: req.user.userId }
-    });
-
-    if (!job) {
-      return res.status(404).json({
-        message: 'Job not found or you do not have permission to update it'
-      });
-    }
-
-    await job.update(req.body);
-
-    res.json({
-      message: 'Job updated successfully',
-      data: job
-    });
-  } catch (error) {
-    console.error('Update job error:', error);
-    res.status(500).json({
-      message: 'Failed to update job',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Delete job
-const deleteJob = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const job = await Job.findOne({
-      where: { id, employerId: req.user.userId }
-    });
-
-    if (!job) {
-      return res.status(404).json({
-        message: 'Job not found or you do not have permission to delete it'
-      });
-    }
-
-    await job.destroy();
-
-    res.json({
-      message: 'Job deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete job error:', error);
-    res.status(500).json({
-      message: 'Failed to delete job',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Search jobs
-const searchJobs = async (req, res) => {
-  try {
-    const {
-      title,
-      location,
-      category,
-      type,
-      experience,
-      salary,
-      skills,
-      sort = 'createdAt:desc',
-      page = 1,
-      limit = 10
-    } = req.query;
-
-    const offset = (page - 1) * limit;
-    const whereClause = { isActive: true };
-
-    if (title) {
-      whereClause.title = { [Op.like]: `%${title}%` };
-    }
-
-    if (location) {
-      whereClause.location = { [Op.like]: `%${location}%` };
-    }
-
-    if (category) {
-      whereClause.category = { [Op.like]: `%${category}%` };
-    }
-
-    if (type) {
-      whereClause.type = type;
-    }
-
-    if (experience) {
-      whereClause.experience = { [Op.like]: `%${experience}%` };
-    }
-
-    const { count, rows: jobs } = await Job.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: User,
-          as: 'employer',
-          attributes: ['id', 'name', 'company']
-        }
-      ],
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    res.json({
-      message: 'Search completed successfully',
-      data: jobs,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        itemsPerPage: parseInt(limit)
-      }
-    });
-  } catch (error) {
-    console.error('Search jobs error:', error);
-    res.status(500).json({
-      message: 'Failed to search jobs',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Get job applications
-const getJobApplications = async (req, res) => {
+// GET /api/jobs/:id/applications (employer only)
+async function getJobApplications(req, res) {
   try {
     const { id } = req.params;
     const { page = 1, limit = 10, status } = req.query;
 
-    const offset = (page - 1) * limit;
-    const whereClause = { jobId: id };
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    const offset = (pageNum - 1) * limitNum;
 
-    if (status) {
-      whereClause.status = status;
+    const job = await Job.unscoped().findByPk(id, { paranoid: false });
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+
+    if (req.user.userType !== 'admin' && job.employerId !== req.user.userId) {
+      return res.status(403).json({ message: 'Forbidden: not your job' });
     }
 
-    const { count, rows: applications } = await Application.findAndCountAll({
+    const whereClause = { jobId: id };
+    if (status) whereClause.status = status;
+
+    const { count, rows } = await Application.findAndCountAll({
       where: whereClause,
       include: [
         {
           model: User,
           as: 'candidate',
-          attributes: ['id', 'name', 'email', 'phone']
-        }
+          attributes: [
+            'id',
+            'name',
+            'email',
+            'phone',
+            'location',
+            'address',
+            'position',
+            'level',
+            'workType',
+            'degree',
+            'industry',
+            'jobCategory',
+            'experienceBand',
+            'expectedSalary',
+            'birthdate',
+            'gender',
+            'maritalStatus',
+            'skills',
+            'careerGoals',
+            'avatar',
+            'cvUrl',
+            'cvName',
+          ],
+          required: false,
+        },
+        {
+          model: CV,
+          as: 'cv',
+          attributes: ['id', 'fileName', 'filePath'],
+          required: false,
+        },
       ],
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: limitNum,
+      offset,
     });
 
-    res.json({
-      message: 'Applications retrieved successfully',
-      data: applications,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        itemsPerPage: parseInt(limit)
+    const data = rows.map((r) => {
+      const a = r.toJSON();
+      let candidate = a.candidate || {};
+      if (a.candidateSnapshot) {
+        try {
+          candidate = { ...candidate, ...JSON.parse(a.candidateSnapshot) };
+        } catch {}
       }
+      let cv = a.cv || null;
+      if (!cv && (a.cvId || a.cvName || a.cvFilePath)) {
+        cv = {
+          id: a.cvId || null,
+          fileName: a.cvName || null,
+          filePath: a.cvFilePath || null,
+        };
+      }
+      if (!cv && candidate?.cvUrl) {
+        cv = {
+          id: null,
+          fileName: candidate.cvName || 'CV.pdf',
+          filePath: candidate.cvUrl,
+        };
+      }
+      if (cv?.filePath) cv.url = absoluteUrl(req, cv.filePath);
+
+      return {
+        id: a.id,
+        status: a.status,
+        createdAt: a.createdAt,
+        coverLetter: a.coverLetter,
+        candidateId: a.candidateId,
+        jobId: a.jobId,
+        candidate,
+        cv,
+      };
+    });
+
+    return res.json({
+      message: 'Applications retrieved successfully',
+      data,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalItems: count,
+        itemsPerPage: limitNum,
+      },
     });
   } catch (error) {
     console.error('Get job applications error:', error);
-    res.status(500).json({
-      message: 'Failed to retrieve applications',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    return res.status(500).json({ message: 'Failed to retrieve applications' });
+  }
+}
+
+// POST /api/jobs
+async function createJob(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res
+        .status(400)
+        .json({ message: 'Validation failed', errors: errors.array() });
+
+    const employerId = req.user.userId || req.user.id;
+    const {
+      title,
+      company,
+      location,
+      type,
+      salary,
+      experience,
+      description,
+      requirements,
+      benefits,
+      category,
+      skills,
+      deadline,
+      level,
+      education,
+      experienceBand,
+      salaryBand,
+      workMode,
+      headcount,
+      contactName,
+      contactEmail,
+      contactPhone,
+      contactAddress,
+      jobCode,
+      jdText,
+      mustHaveSkills,
+      niceToHaveSkills,
+      workAddress,
+    } = req.body;
+
+    let skillsJson = skills;
+    if (typeof skills === 'string') {
+      try {
+        skillsJson = JSON.parse(skills);
+      } catch {
+        skillsJson = skills;
+      }
+    }
+    if (Array.isArray(skillsJson)) skillsJson = JSON.stringify(skillsJson);
+
+    let mustHaveJson = Array.isArray(mustHaveSkills)
+      ? JSON.stringify(mustHaveSkills)
+      : mustHaveSkills;
+    let niceToHaveJson = Array.isArray(niceToHaveSkills)
+      ? JSON.stringify(niceToHaveSkills)
+      : niceToHaveSkills;
+
+    const job = await Job.create({
+      title,
+      company,
+      location,
+      type,
+      salary: salary || null,
+      experience: experience || null,
+      description,
+      requirements,
+      benefits: benefits || null,
+      category,
+      skills: skillsJson || null,
+      deadline: deadline ? new Date(deadline) : null,
+      employerId,
+      level: level || null,
+      education: education || null,
+      experienceBand: experienceBand || null,
+      salaryBand: salaryBand || null,
+      workMode: workMode || null,
+      headcount: headcount ? parseInt(headcount) : null,
+      contactName: contactName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+      contactAddress: contactAddress || null,
+      jobCode: jobCode || null,
+      jdText: jdText || null,
+      mustHaveSkills: mustHaveJson || null,
+      niceToHaveSkills: niceToHaveJson || null,
+      jdVersion: 1,
+
+      // JOB mới ở trạng thái chờ duyệt
+      isActive: false,
+      isFeatured: false,
+      viewsCount: 0,
+      applicationsCount: 0,
+      workAddress: workAddress || null,
+    });
+
+    console.log(`✅ [Create Job] Job created: ${job.id} - ${job.title}`);
+    return res.status(201).json({
+      success: true,
+      message: 'Job created successfully',
+      data: job,
+    });
+  } catch (error) {
+    console.error('❌ Create job error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create job',
     });
   }
-};
+}
+
+// PUT /api/jobs/:id
+async function updateJob(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res
+        .status(400)
+        .json({ message: 'Validation failed', errors: errors.array() });
+
+    const { id } = req.params;
+    const employerId = req.user.userId || req.user.id;
+
+    const job = await Job.findOne({ where: { id, employerId } });
+    if (!job)
+      return res
+        .status(404)
+        .json({ message: 'Job not found or no permission' });
+
+    const {
+      title,
+      company,
+      location,
+      type,
+      salary,
+      experience,
+      description,
+      requirements,
+      benefits,
+      category,
+      skills,
+      deadline,
+      level,
+      education,
+      experienceBand,
+      salaryBand,
+      workMode,
+      headcount,
+      contactName,
+      contactEmail,
+      contactPhone,
+      contactAddress,
+      jobCode,
+      jdText,
+      mustHaveSkills,
+      niceToHaveSkills,
+      workAddress,
+    } = req.body;
+
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (company !== undefined) updateData.company = company;
+    if (location !== undefined) updateData.location = location;
+    if (type !== undefined) updateData.type = type;
+    if (salary !== undefined) updateData.salary = salary;
+    if (experience !== undefined) updateData.experience = experience;
+    if (description !== undefined) updateData.description = description;
+    if (requirements !== undefined) updateData.requirements = requirements;
+    if (benefits !== undefined) updateData.benefits = benefits;
+    if (category !== undefined) updateData.category = category;
+    if (deadline !== undefined)
+      updateData.deadline = deadline ? new Date(deadline) : null;
+    if (level !== undefined) updateData.level = level;
+    if (education !== undefined) updateData.education = education;
+    if (experienceBand !== undefined) updateData.experienceBand = experienceBand;
+    if (salaryBand !== undefined) updateData.salaryBand = salaryBand;
+    if (workMode !== undefined) updateData.workMode = workMode;
+    if (headcount !== undefined)
+      updateData.headcount = headcount ? parseInt(headcount) : null;
+    if (contactName !== undefined) updateData.contactName = contactName;
+    if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
+    if (contactPhone !== undefined) updateData.contactPhone = contactPhone;
+    if (contactAddress !== undefined) updateData.contactAddress = contactAddress;
+    if (jobCode !== undefined) updateData.jobCode = jobCode;
+
+    if (skills !== undefined) {
+      let skillsJson = skills;
+      if (typeof skills === 'string') {
+        try {
+          skillsJson = JSON.parse(skills);
+        } catch {}
+      }
+      if (Array.isArray(skillsJson))
+        skillsJson = JSON.stringify(skillsJson);
+      updateData.skills = skillsJson;
+    }
+
+    if (jdText !== undefined) updateData.jdText = jdText;
+    if (mustHaveSkills !== undefined)
+      updateData.mustHaveSkills = Array.isArray(mustHaveSkills)
+        ? JSON.stringify(mustHaveSkills)
+        : mustHaveSkills;
+    if (niceToHaveSkills !== undefined)
+      updateData.niceToHaveSkills = Array.isArray(niceToHaveSkills)
+        ? JSON.stringify(niceToHaveSkills)
+        : niceToHaveSkills;
+
+    if (workAddress !== undefined)
+      updateData.workAddress = workAddress || null;
+
+    if (
+      jdText !== undefined ||
+      mustHaveSkills !== undefined ||
+      niceToHaveSkills !== undefined
+    ) {
+      updateData.jdVersion = (job.jdVersion || 1) + 1;
+    }
+
+    await job.update(updateData);
+    console.log(`✅ [Update Job] Job updated: ${job.id} - ${job.title}`);
+
+    return res.json({
+      success: true,
+      message: 'Job updated successfully',
+      data: job,
+    });
+  } catch (error) {
+    console.error('❌ Update job error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update job',
+    });
+  }
+}
+
+// DELETE /api/jobs/:id
+async function deleteJob(req, res) {
+  try {
+    const { id } = req.params;
+    const employerId = req.user.userId || req.user.id;
+
+    const job = await Job.findOne({ where: { id, employerId } });
+    if (!job)
+      return res
+        .status(404)
+        .json({ message: 'Job not found or no permission' });
+
+    await job.update({ isActive: false, isFeatured: false });
+    console.log(`✅ [Delete Job] Job deactivated: ${job.id} - ${job.title}`);
+
+    return res.json({
+      success: true,
+      message: 'Job deleted successfully',
+    });
+  } catch (error) {
+    console.error('❌ Delete job error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to delete job',
+    });
+  }
+}
+
+// GET /api/jobs/search
+async function searchJobs(req, res) {
+  try {
+    return getAllJobs(req, res);
+  } catch (error) {
+    console.error('Search jobs error:', error);
+    return res.status(500).json({ message: 'Failed to search jobs' });
+  }
+}
+
+// PATCH /api/jobs/:id/status
+async function updateJobStatus(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res
+        .status(400)
+        .json({ message: 'Validation failed', errors: errors.array() });
+
+    const { id } = req.params;
+    const { isActive, isFeatured } = req.body;
+    const employerId = req.user.userId || req.user.id;
+
+    const job = await Job.findOne({ where: { id, employerId } });
+    if (!job)
+      return res
+        .status(404)
+        .json({ message: 'Job not found or no permission' });
+
+    const updateData = {};
+    const wasActive = job.isActive;
+
+    if (isActive !== undefined) updateData.isActive = Boolean(isActive);
+    if (isFeatured !== undefined) updateData.isFeatured = Boolean(isFeatured);
+
+    await job.update(updateData);
+    console.log(
+      `✅ [Update Status] Job ${job.id}: isActive=${job.isActive}, isFeatured=${job.isFeatured}`,
+    );
+
+    // 🔔 JOB_PUBLISHED: trước đó OFF, giờ ON => gửi Job Alert
+    try {
+      const nowActive =
+        wasActive === false &&
+        (isActive !== undefined ? Boolean(isActive) : job.isActive) === true;
+
+      if (nowActive) {
+        const io = req.app?.get('io') || null;
+
+        // Lọc cơ bản: cùng category & bật jobAlertOn
+        const candidates = await User.findAll({
+          where: {
+            userType: 'candidate',
+            jobAlertOn: true,
+            jobCategory: job.category || null,
+          },
+          attributes: ['id', 'name', 'email'],
+        });
+
+        console.log(
+          `[Job Alerts] Job ${job.id} activated, sending alerts to ${candidates.length} candidates`,
+        );
+
+        for (const c of candidates) {
+          await createNotification({
+            receiverId: c.id,
+            type: 'info',
+            title: 'Có việc làm mới phù hợp',
+            message: `Công ty ${job.company} vừa đăng tuyển vị trí ${job.title} tại ${
+              job.location || ''
+            }.`,
+            jobId: job.id,
+            io,
+            alsoEmail: false,
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[Job Alerts] create notifications failed:', e.message);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Job status updated successfully',
+      data: job,
+    });
+  } catch (error) {
+    console.error('❌ Update job status error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update job status',
+    });
+  }
+}
 
 module.exports = {
   getAllJobs,
@@ -376,5 +841,6 @@ module.exports = {
   updateJob,
   deleteJob,
   searchJobs,
-  getJobApplications
+  getJobApplications,
+  updateJobStatus,
 };

@@ -1,43 +1,63 @@
+// server/src/config/database.js
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-const config = {
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 1433,
-  database: process.env.DB_NAME || 'HeThongTuyenDungDB',
-  username: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASSWORD || '12345@Aa',
-  dialect: process.env.DB_DIALECT || 'mssql',
-  dialectOptions: {
-    options: {
-      encrypt: false,
-      trustServerCertificate: true,
-    }
-  },
-  pool: {
-    max: 10,
-    min: 0,
-    acquire: 30000,
-    idle: 10000
-  },
-  logging: process.env.NODE_ENV === 'development' ? console.log : false
+/*
+ENV:
+- DB_HOST (default: localhost)
+- DB_PORT (default: 1433)
+- DB_NAME  (default: HeThongTuyenDungDB)
+- DB_USER  (default: sa)
+- DB_PASSWORD (default: 12345@Aa)
+*/
+
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = parseInt(process.env.DB_PORT || '1433', 10);
+const DB_INSTANCE = process.env.DB_INSTANCE || ''; 
+const DB_NAME = process.env.DB_NAME || 'HeThongTuyenDungDB';
+const DB_USER = process.env.DB_USER || 'sa';
+const DB_PASS = process.env.DB_PASSWORD || '12345@Aa';
+const DB_DIALECT = process.env.DB_DIALECT || 'mssql';
+const DB_ENCRYPT = String(process.env.DB_ENCRYPT || 'false').toLowerCase() === 'true';
+const DB_TRUST_CERT = String(process.env.DB_TRUST_CERT || 'true').toLowerCase() === 'true';
+const DB_LOGGING = String(process.env.DB_LOGGING || 'false').toLowerCase() === 'true';
+
+// Cấu hình driver MSSQL
+const dialectOptions = {
+  options: { 
+    encrypt: DB_ENCRYPT, 
+    trustServerCertificate: DB_TRUST_CERT,
+    enableArithAbort: true,
+    
+    // QUAN TRỌNG: Giữ dòng này để sử dụng giờ địa phương của máy tính
+    useUTC: false,
+    
+    // Tắt cảnh báo cũ của tedious
+    dateFirst: 1 
+  }
 };
 
-const sequelize = new Sequelize(
-  config.database,
-  config.username,
-  config.password,
-  {
-    host: config.host,
-    port: config.port,
-    dialect: config.dialect,
-    dialectOptions: config.dialectOptions,
-    pool: config.pool,
-    logging: config.logging
-  }
-);
+if (DB_INSTANCE) {
+  dialectOptions.instanceName = DB_INSTANCE;
+}
 
-const testConnection = async () => {
+const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASS, {
+  host: DB_HOST,
+  dialect: DB_DIALECT,
+  logging: DB_LOGGING ? console.log : false,
+  port: DB_INSTANCE ? undefined : DB_PORT,
+  
+  // ❌ ĐÃ XÓA DÒNG: timezone: '+07:00' 
+  // (Dòng này gây ra lỗi thêm đuôi +07:00 vào chuỗi ngày tháng khiến SQL Server từ chối)
+
+  dialectOptions,
+  pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
+  
+  // Setting này giúp Sequelize không tự động ép kiểu sang UTC khi đọc/ghi
+  keepDefaultTimezone: true, 
+});
+
+async function testConnection() {
   try {
     await sequelize.authenticate();
     console.log('✅ Kết nối cơ sở dữ liệu thành công.');
@@ -45,24 +65,30 @@ const testConnection = async () => {
     console.error('❌ Không thể kết nối cơ sở dữ liệu:', error.message);
     process.exit(1);
   }
-};
+}
 
-const initDatabase = async () => {
+async function printConnectedInfo() {
   try {
-    await testConnection();
-
-    if (process.env.NODE_ENV === 'development') {
-      // await sequelize.sync({ alter: true });
-      console.log('📊 Cơ sở dữ liệu đã đồng bộ thành công.');
-    }
-  } catch (error) {
-    console.error('❌ Lỗi khi khởi tạo cơ sở dữ liệu:', error.message);
-    process.exit(1);
+    const [meta] = await sequelize.query(`
+      SELECT 
+        DB_NAME() AS db, 
+        @@SERVERNAME AS server, 
+        SERVERPROPERTY('InstanceName') AS instance
+    `);
+    console.log(`🔗 Connected => db: ${meta[0]?.db}, server: ${meta[0]?.server}, instance: ${meta[0]?.instance || '(default)'}`);
+  } catch (e) {
+    console.log('ℹ️ Cannot fetch connected info:', e?.message);
   }
-};
+}
+
+async function initDatabase() {
+  await testConnection();
+  await printConnectedInfo();
+  console.log('📊 Cơ sở dữ liệu đã sẵn sàng.');
+}
 
 module.exports = {
   sequelize,
+  initDatabase,
   testConnection,
-  initDatabase
 };

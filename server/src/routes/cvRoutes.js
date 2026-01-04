@@ -7,9 +7,7 @@ const {
   updateCV,
   deleteCV,
   downloadCV,
-  searchCVs,
-  analyzeCV,
-  getCVAnalysis
+  searchCVs
 } = require('../controllers/cvController');
 const { auth } = require('../middleware/auth');
 const { upload, handleUploadError } = require('../middleware/upload');
@@ -94,7 +92,5 @@ router.get('/:id/download', downloadCV);
 router.post('/upload', auth, upload.single('cv'), handleUploadError, uploadCVValidation, uploadCV);
 router.put('/:id', auth, updateCVValidation, updateCV);
 router.delete('/:id', auth, deleteCV);
-router.post('/:id/analyze', auth, analyzeCV);
-router.get('/:id/analysis', auth, getCVAnalysis);
 
 module.exports = router;

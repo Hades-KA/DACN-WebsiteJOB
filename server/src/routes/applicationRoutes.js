@@ -1,62 +1,130 @@
+// server/src/routes/applicationRoutes.js
+'use strict';
+
 const express = require('express');
-const { body, validationResult } = require('express-validator');
-const { Application, Job, User, CV } = require('../models');
+const { body, validationResult, param } = require('express-validator');
+const { Application, Job, User, CV, Score } = require('../models');
 const { auth } = require('../middleware/auth');
+const { getLatestScore, rescoreApplication } = require('../services/scoreService');
+
+// Email
+const { sendMail } = require('../utils/mailer');
+const {
+  interviewInvitationTemplate,
+  acceptedTemplate,
+  rejectedTemplate
+} = require('../utils/emailTemplates');
+
+// Service thông báo
+const { createNotification } = require('../services/notificationService');
 
 const router = express.Router();
 
-// All routes require authentication
+// Bắt buộc đăng nhập
 router.use(auth);
 
-// Validation rules
-const createApplicationValidation = [
-  body('jobId')
-    .isUUID()
-    .withMessage('Valid job ID is required'),
-  body('cvId')
-    .optional()
-    .isUUID()
-    .withMessage('cvId must be a valid UUID'),
-  body('coverLetter')
-    .optional()
-    .trim()
-    .isLength({ max: 2000 })
-    .withMessage('Cover letter must not exceed 2000 characters'),
-  body('expectedSalary')
-    .optional()
-    .isDecimal()
-    .withMessage('Expected salary must be a valid number'),
-  body('availableFrom')
-    .optional()
-    .isISO8601()
-    .withMessage('Invalid available from date format')
-];
+/* ============== Helpers ============== */
+const normalizeStatus = (s) => {
+  if (!s) return null;
+  const map = {
+    interview: 'interviewed',
+    interviewing: 'interviewed',
+    inreview: 'reviewing',
+    shortlist: 'shortlisted'
+  };
+  const v = String(s).toLowerCase();
+  return map[v] || v;
+};
 
-const updateApplicationStatusValidation = [
-  body('status')
-    .isIn(['pending', 'reviewing', 'shortlisted', 'interviewed', 'accepted', 'rejected'])
-    .withMessage('Invalid status value')
-];
+const absoluteUrl = (req, url) => {
+  if (!url || /^https?:\/\//i.test(url) || !url.startsWith('/')) return url;
+  return `${req.protocol}://${req.get('host')}${url}`;
+};
 
-// Get applications
-const getApplications = async (req, res) => {
+const mergeCandidateWithSnapshot = (candidate, snapshot) => {
+  if (!snapshot) return candidate || {};
+  try {
+    return { ...(candidate || {}), ...JSON.parse(snapshot) };
+  } catch {
+    return candidate || {};
+  }
+};
+
+const buildCvObj = (req, raw) => {
+  if (raw.cv) {
+    return {
+      id: raw.cv.id || null,
+      fileName: raw.cv.fileName || null,
+      filePath: raw.cv.filePath || null,
+      url: absoluteUrl(req, raw.cv.filePath || '')
+    };
+  }
+  if (raw.cvId || raw.cvName || raw.cvFilePath) {
+    return {
+      id: raw.cvId || null,
+      fileName: raw.cvName || null,
+      filePath: raw.cvFilePath || null,
+      url: absoluteUrl(req, raw.cvFilePath || '')
+    };
+  }
+  const cand = raw.candidate || {};
+  if (cand.cvUrl) {
+    return {
+      id: null,
+      fileName: cand.cvName || 'CV.pdf',
+      filePath: cand.cvUrl,
+      url: absoluteUrl(req, cand.cvUrl)
+    };
+  }
+  return null;
+};
+
+// 🔥 Nâng cấp để parse được cả JSON nháy đơn và double encode
+function parseListDeep(raw) {
+  if (raw == null) return [];
+  let v = raw;
+
+  for (let i = 0; i < 2; i++) {
+    if (typeof v === 'string') {
+      try {
+        v = JSON.parse(v);
+        continue;
+      } catch {
+        // Thử sửa nháy đơn thành nháy kép rồi parse lại
+        try {
+          const fixed = v.replace(/'/g, '"');
+          v = JSON.parse(fixed);
+          continue;
+        } catch {
+          break;
+        }
+      }
+    }
+    break;
+  }
+  return Array.isArray(v) ? v : [];
+}
+
+/* ============== API ============== */
+
+// GET /api/applications
+router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 10, status, jobId } = req.query;
-    const offset = (page - 1) * limit;
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+    const offset = (pageNum - 1) * limitNum;
+
     const userId = req.user.userId;
     const userType = req.user.userType;
 
-    let whereClause = {};
+    const whereClause = {};
     let includeClause = [];
 
     if (userType === 'candidate') {
       whereClause.candidateId = userId;
       includeClause = [
-        {
-          model: Job,
-          as: 'job',
-          attributes: ['id', 'title', 'company', 'location', 'type']
-        }
+        { model: Job, as: 'job', attributes: ['id', 'title', 'company', 'location', 'type'] }
       ];
     } else if (userType === 'employer') {
       includeClause = [
@@ -69,274 +137,420 @@ const getApplications = async (req, res) => {
         {
           model: User,
           as: 'candidate',
-          attributes: ['id', 'name', 'email', 'phone']
-        }
+          attributes: [
+            'id',
+            'name',
+            'email',
+            'phone',
+            'location',
+            'address',
+            'position',
+            'level',
+            'workType',
+            'degree',
+            'industry',
+            'jobCategory',
+            'experienceBand',
+            'expectedSalary',
+            'birthdate',
+            'gender',
+            'maritalStatus',
+            'skills',
+            'careerGoals',
+            'avatar',
+            'cvUrl',
+            'cvName'
+          ]
+        },
+        { model: CV, as: 'cv', attributes: ['id', 'fileName', 'filePath'], required: false }
+      ];
+    } else {
+      includeClause = [
+        {
+          model: Job,
+          as: 'job',
+          attributes: ['id', 'title', 'company', 'location', 'type']
+        },
+        {
+          model: User,
+          as: 'candidate',
+          attributes: [
+            'id',
+            'name',
+            'email',
+            'phone',
+            'location',
+            'address',
+            'position',
+            'level',
+            'workType',
+            'degree',
+            'industry',
+            'jobCategory',
+            'experienceBand',
+            'expectedSalary',
+            'birthdate',
+            'gender',
+            'maritalStatus',
+            'skills',
+            'careerGoals',
+            'avatar',
+            'cvUrl',
+            'cvName'
+          ]
+        },
+        { model: CV, as: 'cv', attributes: ['id', 'fileName', 'filePath'], required: false }
       ];
     }
 
-    if (status) {
-      whereClause.status = status;
-    }
+    if (status && status !== 'all') whereClause.status = normalizeStatus(status);
+    if (jobId) whereClause.jobId = jobId;
 
-    if (jobId) {
-      whereClause.jobId = jobId;
-    }
-
-    const { count, rows: applications } = await Application.findAndCountAll({
+    const { count, rows } = await Application.findAndCountAll({
       where: whereClause,
       include: includeClause,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: limitNum,
+      offset
+    });
+
+    const data = rows.map((r) => {
+      const a = r.toJSON();
+      const candidate = mergeCandidateWithSnapshot(a.candidate, a.candidateSnapshot);
+      const cv = buildCvObj(req, { ...a, candidate });
+      return { ...a, candidate, cv };
     });
 
     res.json({
       message: 'Applications retrieved successfully',
-      data: applications,
+      data,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
         totalItems: count,
-        itemsPerPage: parseInt(limit)
+        itemsPerPage: limitNum
       }
     });
-  } catch (error) {
-    console.error('Get applications error:', error);
-    res.status(500).json({
-      message: 'Failed to retrieve applications',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+  } catch (e) {
+    console.error('Get applications error:', e);
+    res.status(500).json({ message: 'Failed to retrieve applications' });
   }
-};
+});
 
-// Get application by ID
-const getApplicationById = async (req, res) => {
+/* ===============================================================
+   GET /api/applications/:id/score  (🔥 route FE đang gọi)
+   =============================================================== */
+router.get('/:id/score', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const userType = req.user.userType;
+
+    // Kiểm tra quyền giống GET /:id
+    let whereClause = { id };
+    const includeClause = [
+      {
+        model: Job,
+        as: 'job',
+        attributes: ['id', 'employerId', 'title', 'company']
+      }
+    ];
+
+    if (userType === 'candidate') whereClause.candidateId = userId;
+    if (userType === 'employer') includeClause[0].where = { employerId: userId };
+
+    const app = await Application.findOne({ where: whereClause, include: includeClause });
+    if (!app) return res.status(404).json({ message: 'Application not found' });
+
+    // Lấy điểm mới nhất theo generatedAt
+    const score = await Score.findOne({
+      where: { applicationId: id },
+      order: [['generatedAt', 'DESC']]
+    });
+
+    let scoreJson = null;
+    if (score) {
+      const s = score.toJSON();
+      scoreJson = {
+        ...s,
+        matchedSkills: parseListDeep(s.matchedSkills),
+        missingSkills: parseListDeep(s.missingSkills),
+        missingMustHave: parseListDeep(s.missingMustHave)
+      };
+    }
+
+    return res.json({
+      message: 'Score retrieved successfully',
+      data: scoreJson,
+      aiMatchScore: app.aiMatchScore != null ? Number(app.aiMatchScore) : null
+    });
+  } catch (error) {
+    console.error('Get application score error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve score' });
+  }
+});
+
+// GET /api/applications/:id  (đặt SAU /:id/score để không bị nuốt route)
+router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
     const userType = req.user.userType;
 
     let whereClause = { id };
-    let includeClause = [
+    const includeClause = [
       {
         model: Job,
         as: 'job',
-        attributes: ['id', 'title', 'company', 'location', 'type', 'description', 'requirements']
+        attributes: [
+          'id',
+          'title',
+          'company',
+          'location',
+          'type',
+          'description',
+          'requirements'
+        ]
       },
       {
         model: User,
         as: 'candidate',
-        attributes: ['id', 'name', 'email', 'phone']
-      }
+        attributes: [
+          'id',
+          'name',
+          'email',
+          'phone',
+          'location',
+          'address',
+          'position',
+          'level',
+          'workType',
+          'degree',
+          'industry',
+          'jobCategory',
+          'experienceBand',
+          'expectedSalary',
+          'birthdate',
+          'gender',
+          'maritalStatus',
+          'skills',
+          'careerGoals',
+          'avatar',
+          'cvUrl',
+          'cvName'
+        ]
+      },
+      { model: CV, as: 'cv', attributes: ['id', 'fileName', 'filePath'], required: false }
     ];
 
-    if (userType === 'candidate') {
-      whereClause.candidateId = userId;
-    } else if (userType === 'employer') {
-      includeClause[0].where = { employerId: userId };
-    }
+    if (userType === 'candidate') whereClause.candidateId = userId;
+    if (userType === 'employer') includeClause[0].where = { employerId: userId };
 
-    const application = await Application.findOne({
-      where: whereClause,
-      include: includeClause
-    });
+    const a = await Application.findOne({ where: whereClause, include: includeClause });
+    if (!a) return res.status(404).json({ message: 'Application not found' });
 
-    if (!application) {
-      return res.status(404).json({
-        message: 'Application not found'
-      });
-    }
+    const raw = a.toJSON();
+    const candidate = mergeCandidateWithSnapshot(raw.candidate, raw.candidateSnapshot);
+    const cv = buildCvObj(req, { ...raw, candidate });
 
     res.json({
       message: 'Application retrieved successfully',
-      data: application
+      data: { ...raw, candidate, cv }
     });
-  } catch (error) {
-    console.error('Get application error:', error);
-    res.status(500).json({
-      message: 'Failed to retrieve application',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+  } catch (e) {
+    console.error('Get application error:', e);
+    res.status(500).json({ message: 'Failed to retrieve application' });
   }
-};
+});
 
-// Create application
-const createApplication = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
+// PUT /api/applications/:id/status
+router.put(
+  '/:id/status',
+  [
+    param('id').isUUID().withMessage('Invalid application id'),
+    body('status')
+      .isIn(['pending', 'reviewing', 'shortlisted', 'interviewed', 'accepted', 'rejected'])
+      .withMessage('Invalid status value')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty())
+        return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
 
-    const { jobId, cvId, coverLetter, expectedSalary, availableFrom } = req.body;
-    const candidateId = req.user.userId;
+      const { id } = req.params;
+      const toStatus = normalizeStatus(req.body.status);
+      const { interviewTime, interviewMode } = req.body;
 
-    // Check if job exists and is active
-    const job = await Job.findOne({
-      where: { id: jobId, isActive: true }
-    });
-
-    if (!job) {
-      return res.status(404).json({
-        message: 'Job not found or not active'
-      });
-    }
-
-    // Check if user already applied for this job
-    const existingApplication = await Application.findOne({
-      where: { jobId, candidateId }
-    });
-
-    if (existingApplication) {
-      return res.status(400).json({
-        message: 'You have already applied for this job'
-      });
-    }
-
-    // Validate CV ownership if provided
-    let cvRecord = null;
-    if (cvId) {
-      cvRecord = await CV.findOne({ where: { id: cvId, candidateId } });
-      if (!cvRecord) {
-        return res.status(400).json({ message: 'Invalid cvId or you do not own this CV' });
+      const userId = req.user.userId;
+      const userType = req.user.userType;
+      if (userType !== 'employer' && userType !== 'admin') {
+        return res
+          .status(403)
+          .json({ message: 'Only employers can update application status' });
       }
+
+      const application = await Application.findOne({
+        where: { id },
+        include: [
+          {
+            model: Job,
+            as: 'job',
+            attributes: [
+              'id',
+              'employerId',
+              'title',
+              'company',
+              'workAddress',
+              'contactEmail',
+              'contactPhone'
+            ],
+            include: [
+              {
+                model: User,
+                as: 'employer',
+                attributes: ['id', 'name', 'email', 'phone', 'company', 'companyAddress']
+              }
+            ]
+          },
+          { model: User, as: 'candidate', attributes: ['id', 'name', 'email', 'phone'] }
+        ]
+      });
+      if (!application) return res.status(404).json({ message: 'Application not found' });
+      if (userType !== 'admin' && application.job.employerId !== userId) {
+        return res.status(403).json({ message: 'Forbidden: not your job application' });
+      }
+
+      let history = [];
+      try {
+        history = JSON.parse(application.statusHistory || '[]');
+      } catch {
+        history = [];
+      }
+      history.push({ by: userId, to: toStatus, at: new Date().toISOString() });
+
+      await application.update({
+        status: toStatus,
+        statusHistory: JSON.stringify(history)
+      });
+
+      // Gửi email (giữ nguyên logic cũ)
+      try {
+        const candidate = application.candidate || {};
+        const job = application.job || {};
+        const employer = job.employer || {};
+        const candidateEmail = (candidate.email || '').trim();
+
+        if (candidateEmail) {
+          let tpl = null;
+          if (toStatus === 'interviewed') {
+            tpl = interviewInvitationTemplate({
+              candidate,
+              job,
+              employer,
+              interviewTime: interviewTime || null,
+              interviewMode: interviewMode || null
+            });
+          } else if (toStatus === 'accepted') {
+            tpl = acceptedTemplate({ candidate, job, employer });
+          } else if (toStatus === 'rejected') {
+            tpl = rejectedTemplate({ candidate, job, employer });
+          }
+
+          if (tpl) {
+            const info = await sendMail({
+              to: candidateEmail,
+              subject: tpl.subject,
+              html: tpl.html,
+              text: tpl.text
+            });
+            if (info) console.log(`[EMAIL] sent ${toStatus} -> ${candidateEmail}`);
+            else console.warn(`[EMAIL] failed ${toStatus} -> ${candidateEmail}`);
+          } else {
+            console.log(`[EMAIL] No template for status ${toStatus}, skip sending`);
+          }
+        } else {
+          console.warn(`[EMAIL] Candidate email missing for app ${id}`);
+        }
+      } catch (mailErr) {
+        console.error('[EMAIL] send error:', mailErr.message || mailErr);
+      }
+
+      // 🔔 GỬI THÔNG BÁO CHO ỨNG VIÊN
+      try {
+        const job = application.job || {};
+        const io = req.app?.get('io') || null;
+
+        let title = 'Cập nhật trạng thái hồ sơ';
+        let msg = `Trạng thái hồ sơ của bạn cho vị trí ${job.title || ''} đã được cập nhật: ${toStatus}.`;
+        let type = 'info';
+
+        if (toStatus === 'reviewing') {
+          title = 'Nhà tuyển dụng đã xem hồ sơ (Từ AI gợi ý)';
+          msg = `Nhà tuyển dụng ${job.company || ''} đã xem và đang đánh giá hồ sơ của bạn.`;
+        } else if (toStatus === 'shortlisted') {
+          title = 'Bạn đã vào danh sách shortlist';
+          msg = `Hồ sơ của bạn cho vị trí ${job.title || ''} đã được đưa vào danh sách ứng viên tiềm năng.`;
+          type = 'success';
+        } else if (toStatus === 'interviewed') {
+          title = 'Mời phỏng vấn';
+          if (interviewTime) {
+            msg = `Bạn được mời phỏng vấn vị trí ${job.title || ''} tại ${
+              job.company || ''
+            } vào lúc ${new Date(interviewTime).toLocaleString('vi-VN')}.`;
+          } else {
+            msg = `Bạn được mời phỏng vấn vị trí ${job.title || ''} tại ${job.company || ''}.`;
+          }
+          type = 'success';
+        } else if (toStatus === 'accepted') {
+          title = 'Chúc mừng bạn trúng tuyển';
+          msg = `Bạn đã được nhận vào vị trí ${job.title || ''} tại ${job.company || ''}.`;
+          type = 'success';
+        } else if (toStatus === 'rejected') {
+          title = 'Kết quả ứng tuyển';
+          msg = `Rất tiếc, hồ sơ của bạn tại ${job.company || ''} cho vị trí ${
+            job.title || ''
+          } chưa phù hợp trong đợt này.`;
+          type = 'warning';
+        }
+
+        await createNotification({
+          receiverId: application.candidateId,
+          type,
+          title,
+          message: msg,
+          jobId: application.jobId,
+          io,
+          alsoEmail: false, // email đã gửi ở trên rồi
+        });
+      } catch (e) {
+        console.error('[Applications] create notification on status change error:', e.message);
+      }
+
+      const refreshed = await Application.findOne({
+        where: { id },
+        include: [
+          {
+            model: Job,
+            as: 'job',
+            attributes: ['id', 'title', 'company', 'workAddress', 'contactEmail', 'contactPhone']
+          },
+          { model: User, as: 'candidate', attributes: ['id', 'name', 'email', 'phone'] }
+        ]
+      });
+
+      return res.json({
+        message: 'Application status updated successfully',
+        data: refreshed
+      });
+    } catch (e) {
+      console.error('Update application status error:', e);
+      return res
+        .status(500)
+        .json({ message: 'Failed to update application status' });
     }
-
-    // Create application
-    const application = await Application.create({
-      jobId,
-      candidateId,
-      cvId: cvId || null,
-      coverLetter,
-      expectedSalary: expectedSalary ? parseFloat(expectedSalary) : null,
-      availableFrom: availableFrom ? new Date(availableFrom) : null,
-      status: 'pending'
-    });
-
-    // Increment job applications count
-    await job.increment('applicationsCount');
-
-    res.status(201).json({
-      message: 'Application submitted successfully',
-      data: application
-    });
-  } catch (error) {
-    console.error('Create application error:', error);
-    res.status(500).json({
-      message: 'Failed to create application',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
   }
-};
+);
 
-// Update application status
-const updateApplicationStatus = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { id } = req.params;
-    const { status } = req.body;
-    const userId = req.user.userId;
-    const userType = req.user.userType;
-
-    // Only employers can update application status
-    if (userType !== 'employer') {
-      return res.status(403).json({
-        message: 'Only employers can update application status'
-      });
-    }
-
-    const application = await Application.findOne({
-      where: { id },
-      include: [{
-        model: Job,
-        as: 'job',
-        where: { employerId: userId }
-      }]
-    });
-
-    if (!application) {
-      return res.status(404).json({
-        message: 'Application not found or you do not have permission to update it'
-      });
-    }
-
-    await application.update({ status });
-
-    res.json({
-      message: 'Application status updated successfully',
-      data: application
-    });
-  } catch (error) {
-    console.error('Update application status error:', error);
-    res.status(500).json({
-      message: 'Failed to update application status',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Delete application
-const deleteApplication = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user.userId;
-    const userType = req.user.userType;
-
-    let whereClause = { id };
-
-    if (userType === 'candidate') {
-      whereClause.candidateId = userId;
-    } else if (userType === 'employer') {
-      whereClause = {
-        id,
-        '$job.employerId$': userId
-      };
-    }
-
-    const application = await Application.findOne({
-      where: whereClause,
-      include: [{
-        model: Job,
-        as: 'job',
-        attributes: ['id', 'employerId']
-      }]
-    });
-
-    if (!application) {
-      return res.status(404).json({
-        message: 'Application not found or you do not have permission to delete it'
-      });
-    }
-
-    await application.destroy();
-
-    res.json({
-      message: 'Application deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete application error:', error);
-    res.status(500).json({
-      message: 'Failed to delete application',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
-
-// Routes
-router.get('/', getApplications);
-router.get('/:id', getApplicationById);
-router.post('/', createApplicationValidation, createApplication);
-router.put('/:id/status', updateApplicationStatusValidation, updateApplicationStatus);
-router.delete('/:id', deleteApplication);
 
 module.exports = router;

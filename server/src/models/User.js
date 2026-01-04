@@ -1,105 +1,88 @@
+// server/src/models/User.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  name: {
-    type: DataTypes.STRING(100),
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-      len: [2, 100]
-    }
-  },
-  email: {
-    type: DataTypes.STRING(255),
-    allowNull: false,
-    unique: true,
-    validate: {
-      isEmail: true
-    }
-  },
-  password: {
-    type: DataTypes.STRING(255),
-    allowNull: false,
-    validate: {
-      len: [6, 255]
-    }
-  },
-  phone: {
-    type: DataTypes.STRING(20),
-    allowNull: true,
-    validate: {
-      is: /^[\+]?[1-9][\d]{0,15}$/
-    }
-  },
-  userType: {
-    type: DataTypes.ENUM('candidate', 'employer', 'admin'),
-    allowNull: false,
-    defaultValue: 'candidate'
-  },
-  company: {
-    type: DataTypes.STRING(255),
-    allowNull: true
-  },
-  avatar: {
-    type: DataTypes.STRING(500),
-    allowNull: true
-  },
-  isActive: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  },
-  isVerified: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  lastLogin: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  resetPasswordToken: {
-    type: DataTypes.STRING(255),
-    allowNull: true
-  },
-  resetPasswordExpires: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  verificationToken: {
-    type: DataTypes.STRING(255),
-    allowNull: true
-  }
+  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+
+  name:     { type: DataTypes.STRING(100), allowNull: false, validate: { notEmpty: true, len: [2, 100] } },
+  email:    { type: DataTypes.STRING(255), allowNull: false, unique: true, validate: { isEmail: true } },
+  password: { type: DataTypes.STRING(255), allowNull: false, validate: { len: [6, 255] } },
+
+  phone:    { type: DataTypes.STRING(20),  allowNull: true },
+  userType: { type: DataTypes.STRING(20),  allowNull: false, defaultValue: 'candidate' },
+
+  company:   { type: DataTypes.STRING(255), allowNull: true },
+  avatar:    { type: DataTypes.STRING(500), allowNull: true },
+  isActive:  { type: DataTypes.BOOLEAN,    defaultValue: true },
+  isVerified:{ type: DataTypes.BOOLEAN,    defaultValue: false },
+  lastLogin: { type: DataTypes.DATE,       allowNull: true },
+
+  resetPasswordToken:   { type: DataTypes.STRING(255), allowNull: true },
+  resetPasswordExpires: { type: DataTypes.DATE,        allowNull: true },
+  verificationToken:    { type: DataTypes.STRING(255), allowNull: true },
+
+  // Hồ sơ ứng viên (cũ)
+  position:   { type: DataTypes.STRING(255), allowNull: true },
+  location:   { type: DataTypes.STRING(255), allowNull: true },
+  about:      { type: DataTypes.TEXT,        allowNull: true },
+  skills:     { type: DataTypes.TEXT,        allowNull: true }, // CSV hoặc JSON string
+  experience: { type: DataTypes.TEXT,        allowNull: true },
+  education:  { type: DataTypes.TEXT,        allowNull: true },
+
+  // Bổ sung cho hồ sơ ứng viên (mới)
+  level:           { type: DataTypes.STRING(50),  allowNull: true },
+  workType:        { type: DataTypes.STRING(50),  allowNull: true },
+  degree:          { type: DataTypes.STRING(50),  allowNull: true },
+  // industry đã có bên dưới (employer), có thể tái dùng cho candidate luôn
+  jobCategory:     { type: DataTypes.STRING(100), allowNull: true },
+  experienceBand:  { type: DataTypes.STRING(50),  allowNull: true },
+  expectedSalary:  { type: DataTypes.INTEGER,     allowNull: true },
+  birthdate:       { type: DataTypes.DATEONLY,     allowNull: true },
+  address:         { type: DataTypes.STRING(255),  allowNull: true },
+  gender:          { type: DataTypes.STRING(10),   allowNull: true },   // 'male' | 'female' | ''
+  maritalStatus:   { type: DataTypes.STRING(20),   allowNull: true },   // 'single' | 'married' | ''
+  jobAlertOn:      { type: DataTypes.BOOLEAN,      allowNull: false, defaultValue: true },
+  careerGoals:     { type: DataTypes.TEXT,         allowNull: true },   // HTML từ editor
+
+  // Metadata CV
+  cvUrl:  { type: DataTypes.STRING(500), allowNull: true },
+  cvName: { type: DataTypes.STRING(255), allowNull: true },
+  cvSize: { type: DataTypes.INTEGER,     allowNull: true },
+
+  // Hồ sơ công ty (employer)
+  companyWebsite:  { type: DataTypes.STRING(255), allowNull: true },
+  companySize:     { type: DataTypes.STRING(50),  allowNull: true },
+  industry:        { type: DataTypes.STRING(100), allowNull: true }, // có thể dùng cả cho candidate
+  taxCode:         { type: DataTypes.STRING(50),  allowNull: true },
+  businessLicense: { type: DataTypes.STRING(100), allowNull: true },
+  companyCity:     { type: DataTypes.STRING(100), allowNull: true },
+  companyAddress:  { type: DataTypes.STRING(255), allowNull: true },
+  logoUrl:         { type: DataTypes.STRING(500), allowNull: true },
+  companyAbout:    { type: DataTypes.TEXT,        allowNull: true },
+
 }, {
   tableName: 'users',
-  timestamps: false,  // Bật timestamps để Sequelize tự động quản lý createdAt và updatedAt
-  hooks: {
-    beforeCreate: async (user) => {
-      if (user.password) {
-        user.password = await bcrypt.hash(user.password, 12);
-      }
-    },
-    beforeUpdate: async (user) => {
-      if (user.changed('password')) {
-        user.password = await bcrypt.hash(user.password, 12);
-      }
-    }
-  }
+  timestamps: true,
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
 });
 
-// Instance methods
-User.prototype.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+// Hash mật khẩu
+User.addHook('beforeCreate', async (user) => {
+  if (user.password) user.password = await bcrypt.hash(user.password, 12);
+});
+User.addHook('beforeUpdate', async (user) => {
+  if (user.changed('password')) user.password = await bcrypt.hash(user.password, 12);
+});
+
+User.prototype.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Sửa phương thức toJSON để xóa thông tin nhạy cảm như mật khẩu
-User.prototype.toJSON = function() {
-  const values = Object.assign({}, this.get());
+User.prototype.toJSON = function () {
+  const values = { ...this.get() };
   delete values.password;
   delete values.resetPasswordToken;
   delete values.resetPasswordExpires;

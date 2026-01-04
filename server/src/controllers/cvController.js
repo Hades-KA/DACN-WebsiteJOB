@@ -441,6 +441,6 @@ module.exports = {
   deleteCV,
   downloadCV,
   searchCVs,
-  analyzeCV,
-  getCVAnalysis
+  // analyzeCV, // legacy disabled
+  // getCVAnalysis, // legacy disabled
 };
